@@ -189,9 +189,7 @@ body {
     z-index: 10;
     border-radius: 20px 20px 0 0;
     overflow-x: auto;
-     /* Centering */
-  margin: 0 auto;
-  max-width: 800px; /* or whatever width you prefer *
+    justify-content: center;
 }
 
 .toolbar-group {
@@ -226,6 +224,10 @@ body {
     min-width: 34px;
     min-height: 34px;
     background-color: var(--bg-secondary);
+}
+
+.toolbar-btn i {
+    font-size: 1.2rem;
 }
 
 .toolbar-btn:hover {
