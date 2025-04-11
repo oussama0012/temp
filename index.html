@@ -1,0 +1,430 @@
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Online Notepad</title>
+
+    <!-- Meta Tags for SEO and Social Media -->
+    <meta name="description" content="Use our free online notepad to write, edit, and save notes easily. No login required. A fast and lightweight web-based notepad tool.">
+    <meta name="keywords" content="online notepad, free notepad, web-based notepad, note taking tool, simple notepad">
+    <meta name="author" content="Oussama Achouri">
+    <meta name="robots" content="index, follow">
+
+    <meta property="og:title" content="Online Notepad – Free & Simple Web-Based Note-Taking Tool">
+    <meta property="og:description" content="A fast and lightweight online notepad for writing and saving notes instantly. No sign-up required.">
+    <meta property="og:image" content="https://onlinenotepad.space/ONLINE.png">
+    <meta property="og:url" content="https://onlinenotepad.space/">
+    <meta property="og:type" content="website">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Online Notepad – Free & Simple Web-Based Note-Taking Tool">
+    <meta name="twitter:description" content="Write, edit, and save notes instantly with our free online notepad. No login required.">
+    <meta name="twitter:image" content="https://onlinenotepad.space/ONLINE.png">
+
+    <!-- Link to Favicon -->
+    <link rel="canonical" href="https://onlinenotepad.space">
+    <link rel="icon" type="image/png" href="https://onlinenotepad.space/favicon-16x16.png">
+    
+    <!-- Link to Stylesheets (existing ones) -->
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
+
+    <!-- JSON-LD Schema for Structured Data -->
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "Online Notepad",
+        "url": "https://onlinenotepad.space/",
+        "image": "https://onlinenotepad.space/ONLINE.png",
+        "description": "A simple and free online notepad tool that lets you quickly jot down, save, and organize your notes without any hassle.",
+        "applicationCategory": "Utility",
+        "operatingSystem": "All",
+        "browserRequirements": "Requires JavaScript",
+        "author": {
+            "@type": "Person",
+            "name": "Oussama Achouri"
+        }
+    }
+    </script>
+    
+     <!-- Add the Ezoic script here -->
+    <script src="https://go.ezoic.net/ezoic.js"></script>
+    
+</head>
+<body>
+    <div class="ad-container top-ad">
+        <div class="ad-placeholder">Advertisement</div>
+    </div>
+    <div class="saved-files-container" id="savedFilesContainer">
+        <div class="saved-files-header">
+            <h3>Saved Notes</h3>
+            <button id="toggleSavedFiles" class="toggle-saved-btn">
+                <i class="ri-arrow-up-s-line"></i>
+            </button>
+        </div>
+        <div class="saved-files-list" id="savedFilesList">
+            <!-- Saved files will be populated here -->
+        </div>
+    </div>
+    <div class="main-content">
+        <div class="notepad-container">
+            <div class="toolbar">
+                <div class="toolbar-group">
+                    <button class="toolbar-btn" data-action="new" title="New Note">
+                        <i class="ri-file-add-line"></i>
+                    </button>
+                    <button class="toolbar-btn" data-action="save" title="Save Note">
+                        <i class="ri-save-line"></i>
+                    </button>
+                    <button class="toolbar-btn" data-action="download" title="Download Note">
+                        <i class="ri-download-line"></i>
+                    </button>
+                    <button class="toolbar-btn" data-action="import" title="Import File">
+                        <i class="ri-folder-open-line"></i>
+                    </button>
+                    <button class="toolbar-btn" data-action="print" title="Print Note">
+                        <i class="ri-printer-line"></i>
+                    </button>
+                </div>
+                
+                <div class="separator"></div>
+                
+                <div class="toolbar-group">
+                    <button class="toolbar-btn" data-action="undo" title="Undo">
+                        <i class="ri-arrow-go-back-line"></i>
+                    </button>
+                    <button class="toolbar-btn" data-action="redo" title="Redo">
+                        <i class="ri-arrow-go-forward-line"></i>
+                    </button>
+                </div>
+                
+                <div class="separator"></div>
+                
+                <div class="toolbar-group">
+                    <select id="fontSelector" class="font-selector">
+                        <option value="'Inter', sans-serif">Inter (Default)</option>
+                        <option value="'Arial', sans-serif">Arial</option>
+                        <option value="'Helvetica', sans-serif">Helvetica</option>
+                        <option value="'Times New Roman', serif">Times New Roman</option>
+                        <option value="'Georgia', serif">Georgia</option>
+                        <option value="'Courier New', monospace">Courier New</option>
+                        <option value="'Verdana', sans-serif">Verdana</option>
+                        <option value="'Tahoma', sans-serif">Tahoma</option>
+                        <option value="'Trebuchet MS', sans-serif">Trebuchet MS</option>
+                        <option value="'Arial Black', sans-serif">Arial Black</option>
+                        <option value="'Impact', sans-serif">Impact</option>
+                        <option value="'Comic Sans MS', cursive">Comic Sans MS</option>
+                        <option value="'Garamond', serif">Garamond</option>
+                        <option value="'Palatino', serif">Palatino</option>
+                        <option value="'Bookman', serif">Bookman</option>
+                        <option value="'Avant Garde', sans-serif">Avant Garde</option>
+                        <option value="'Century Gothic', sans-serif">Century Gothic</option>
+                        <option value="'Copperplate', fantasy">Copperplate</option>
+                        <option value="'Monaco', monospace">Monaco</option>
+                        <option value="'Consolas', monospace">Consolas</option>
+                        <option value="'Lucida Console', monospace">Lucida Console</option>
+                        <option value="'Brush Script MT', cursive">Brush Script MT</option>
+                        <option value="'Lucida Handwriting', cursive">Lucida Handwriting</option>
+                        <option value="'Segoe UI', sans-serif">Segoe UI</option>
+                        <option value="'Calibri', sans-serif">Calibri</option>
+                        <option value="'Cambria', serif">Cambria</option>
+                        <option value="'Open Sans', sans-serif">Open Sans</option>
+                        <option value="'Roboto', sans-serif">Roboto</option>
+                        <option value="'Lato', sans-serif">Lato</option>
+                        <option value="'Montserrat', sans-serif">Montserrat</option>
+                        <option value="'Oswald', sans-serif">Oswald</option>
+                        <option value="'Playfair Display', serif">Playfair Display</option>
+                    </select>
+                    
+                    <select id="fontSizeSelector" class="font-size-selector">
+                        <option value="12">12px</option>
+                        <option value="14">14px</option>
+                        <option value="16">16px</option>
+                        <option value="18">18px</option>
+                        <option value="19" selected>19px</option>
+                        <option value="20">20px</option>
+                        <option value="22">22px</option>
+                        <option value="24">24px</option>
+                        <option value="26">26px</option>
+                        <option value="28">28px</option>
+                        <option value="32">32px</option>
+                        <option value="36">36px</option>
+                        <option value="42">42px</option>
+                        <option value="48">48px</option>
+                        <option value="56">56px</option>
+                        <option value="64">64px</option>
+                        <option value="72">72px</option>
+                    </select>
+                </div>
+                
+                <div class="separator"></div>
+                
+                <div class="toolbar-group">
+                    <button class="toolbar-btn" data-action="bold" title="Bold">
+                        <i class="ri-bold"></i>
+                    </button>
+                    <button class="toolbar-btn" data-action="italic" title="Italic">
+                        <i class="ri-italic"></i>
+                    </button>
+                    <button class="toolbar-btn" data-action="underline" title="Underline">
+                        <i class="ri-underline"></i>
+                    </button>
+                    <button class="toolbar-btn" data-action="strikethrough" title="Strikethrough">
+                        <i class="ri-strikethrough"></i>
+                    </button>
+                </div>
+                
+                <div class="separator"></div>
+                
+                <div class="toolbar-group">
+                    <button class="toolbar-btn" data-action="justifyLeft" title="Align Left">
+                        <i class="ri-align-left"></i>
+                    </button>
+                    <button class="toolbar-btn" data-action="justifyCenter" title="Align Center">
+                        <i class="ri-align-center"></i>
+                    </button>
+                    <button class="toolbar-btn" data-action="justifyRight" title="Align Right">
+                        <i class="ri-align-right"></i>
+                    </button>
+                    <button class="toolbar-btn" data-action="justifyFull" title="Justify">
+                        <i class="ri-align-justify"></i>
+                    </button>
+                </div>
+                
+                <div class="separator"></div>
+                
+                <div class="toolbar-group">
+                    <button class="toolbar-btn" data-action="insertOrderedList" title="Numbered List">
+                        <i class="ri-list-ordered"></i>
+                    </button>
+                    <button class="toolbar-btn" data-action="insertUnorderedList" title="Bulleted List">
+                        <i class="ri-list-unordered"></i>
+                    </button>
+                </div>
+                
+                <div class="separator"></div>
+                
+                <div class="toolbar-group">
+                    <input type="color" id="textColor" class="color-input" title="Text Color">
+                    <input type="color" id="highlightColor" value="#ffff00" class="color-input" title="Highlight Color">
+                </div>
+                
+                <div class="separator"></div>
+                
+                <div class="toolbar-group">
+                    <button class="toolbar-btn" data-action="emoji" title="Emoji & Characters">
+                        <i class="ri-emotion-line"></i>
+                    </button>
+                    <button class="toolbar-btn" data-action="link" title="Insert Link">
+                        <i class="ri-link"></i>
+                    </button>
+                    <button class="toolbar-btn" data-action="image" title="Insert Image">
+                        <i class="ri-image-line"></i>
+                    </button>
+                    <button class="toolbar-btn" data-action="removeFormat" title="Clear Formatting">
+                        <i class="ri-format-clear"></i>
+                    </button>
+                </div>
+                
+                <div class="separator"></div>
+                
+                <div class="toolbar-group">
+                    <button class="toolbar-btn" data-action="fullscreen" title="Fullscreen">
+                        <i class="ri-fullscreen-line"></i>
+                    </button>
+                    <button class="toolbar-btn" data-action="darkMode" title="Toggle Dark Mode">
+                        <i class="ri-moon-line"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="editor-container">
+                <div id="notepad" contenteditable="true" spellcheck="true" placeholder="Start typing your notes here..."></div>
+            </div>
+        </div>
+    </div>
+    <div class="ad-container bottom-ad">
+        <div class="ad-placeholder">Advertisement</div>
+    </div>
+    <div class="tool-description">
+        <h1>Free Online Notepad: Write, Save, and Share Your Notes</h1>
+        <p>Our Online Notepad is a feature-rich text editor designed for seamless note-taking, writing, and document management. With a clean interface and powerful formatting tools, it helps you capture your thoughts with style and precision - no installation required.</p>
+        <div class="features-grid">
+            <div class="feature">
+                <i class="ri-file-edit-line"></i>
+                <h3>Rich Text Editing</h3>
+                <p>Format your content with bold, italic, underline, custom fonts, and more.</p>
+            </div>
+            <div class="feature">
+                <i class="ri-save-line"></i>
+                <h3>Auto-Saving</h3>
+                <p>Never lose your work with our online notepad's automatic saving functionality.</p>
+            </div>
+            <div class="feature">
+                <i class="ri-download-cloud-line"></i>
+                <h3>Multiple Export Formats</h3>
+                <p>Export your notes as TXT, HTML, PDF, DOCX and more formats.</p>
+            </div>
+            <div class="feature">
+                <i class="ri-emotion-line"></i>
+                <h3>Emoji & Special Characters</h3>
+                <p>Enhance your notes with emojis and special characters.</p>
+            </div>
+            <div class="feature">
+                <i class="ri-link"></i>
+                <h3>Interactive Links</h3>
+                <p>Add clickable links to websites, resources, and references to make your notes more useful.</p>
+            </div>
+            <div class="feature">
+                <i class="ri-device-line"></i>
+                <h3>Cross-Device Compatible</h3>
+                <p>Access Our tool from any device with a browser - desktop, tablet, or mobile phone.</p>
+            </div>
+        </div>
+    </div>
+    <div class="guide-section">
+        <div class="guide-container">
+            <h2 class="guide-title">Complete Guide to Use Our Free Online Notepad</h2>
+            
+            <div class="guide-content">
+                <h3>Getting Started </h3>
+                <p>Our Online Notepad makes note-taking simple. You don't need to create an account or download anything. Just open the app and start typing in your browser.</p>
+                <p>Your notes save right in your browser. This means you can come back later and find your work still there, making this Note-taking app perfect for ongoing projects.</p>
+                <p>The clean layout helps you focus on writing without distractions. All tools are at the top of the screen, making this Digital notepad both powerful and easy to use.</p>
+                
+                <h3>Basic Writing & Editing with this Browser-based notepad</h3>
+                <p>Click anywhere in the white area to start typing. The text area grows as you write more.</p>
+                <p>To select text, click and drag over the words you want to change. Then use the toolbar buttons to format them.</p>
+                <p>You can cut, copy, and paste text using keyboard shortcuts (Ctrl+X, Ctrl+C, Ctrl+V) or right-click menus just like in desktop applications.</p>
+                <p>The word and character counts at the bottom update as you type. This helps if you need to stay within a limit for your Virtual notepad documents.</p>
+                
+                <h3>Formatting Your Text in Our Online text editor</h3>
+                <p>Make text <b>bold</b> by selecting it and clicking the B button in our feature-rich online notepad.</p>
+                <p>Add <i>italics</i> with the I button to stress key points in your online documents.</p>
+                <p>Use <u>underline</u> to highlight important sections in your online notes.</p>
+                <p>Change fonts from the dropdown menu. Our Web-based notepad offers over 30 font choices.</p>
+                <p>Adjust text size using the size picker. Options range from 12px to 72px for perfect readability.</p>
+                
+                <h3>Saving Your Work in our Cloud notepad</h3>
+                <p>Your notes saved automatically in your browser storage. So you never have to worry about losing work.</p>
+                <p>By clicking the save icon, you can store your note permanently. You can save as many notes as you want .</p>
+                <p>You can find your saved notes in the panel at the top. Just click a note to open it again .</p>
+                <p>he most recent note loads when you return to our note manager for a seamless experience</p>
+                
+                <h3>Organizing Notes in Your Writing tool</h3>
+                <p>All notes appear in the saved notes panel. Click the arrow to show or hide this panel in the online notepad interface.</p>
+                <p>Notes sort by date, with the newest appearing first. Each shows a preview of its content for easy identification.</p>
+                <p>Rename notes by clicking the edit icon next to them. This helps you find them later in your Online writing pad collection.</p>
+                <p>Delete old notes you don't need by clicking the trash icon to keep your online notepad organized.</p>
+                
+                <h3>Exporting and Sharing from the Note editor</h3>
+                <p>Click the download button to save your note to your computer from the Free notepad.</p>
+                <p>Choose from various file types such as TXT, HTML, Markdown, RTF, DOCX, or PDF to ensure maximum compatibility.</p>
+                <p>PDF files keep all your formatting and look the same on any device when exported from our Online memo pad.</p>
+                <p>Word (DOCX) files work with Microsoft Office and other word processors for further editing.</p>
+                
+                <h3>Importing Files to Our Online Notepad</h3>
+                <p>Click the folder icon to open existing text files in our digital note editor.</p>
+                <p>This Simple notepad supports TXT, HTML, Markdown, RTF and DOCX formats for versatile use.</p>
+                <p>When you import a file, it opens as a new note. You can then edit and save it in the Note-making tool.</p>
+                <p>Large files may take a few seconds to open, especially DOCX files, but our Online note organizer handles them efficiently.</p>
+                
+                <h3>Special Features of Our Tool</h3>
+                <p>Add emojis and special symbols by clicking the smile icon. Browse categories or search for specific ones in our feature-rich Electronic notepad.</p>
+                <p>Insert links by selecting text and clicking the link button. Enter the URL and create clickable links in your online documents.</p>
+                <p>Add images from your computer or from a web URL using the image button for rich media notes.</p>
+                <p>Use fullscreen mode to focus on your writing without distractions in our immersive Web-based writing pad experience.</p>
+                
+                <h3>Online journal Keyboard Shortcuts</h3>
+                <p>Save time with these helpful shortcuts in our online notepad:</p>
+                <ul class="shortcut-list">
+                    <li><span class="key">Ctrl+Z</span> - Undo last action</li>
+                    <li><span class="key">Ctrl+Y</span> - Redo last action</li>
+                    <li><span class="key">Ctrl+B</span> - Bold text</li>
+                    <li><span class="key">Ctrl+I</span> - Italic text </li>
+                    <li><span class="key">Ctrl+U</span> - Underline text</li>
+                    <li><span class="key">Ctrl+S</span> - Save note </li>
+                    <li><span class="key">F11</span> - Toggle fullscreen </li>
+                </ul>
+                
+                <h3>Tips for Better Notes in Your Web note editor</h3>
+                <p>Use different fonts to separate sections of your notes. This makes them easier to scan .</p>
+                <p>Create simple outlines with bold headings and normal text for details in your online documents.</p>
+                <p>Add emojis as visual markers for different types of information in your Free text editor.</p>
+                <p>Keep each note focused on one topic. Create new notes for different subjects in your Portable notepad.</p>
+                <p>Use links to connect related notes or add references to web pages for a richer Online document pad experience.</p>
+                <p>Export important notes as PDFs for easy long-term storage or sharing outside the note organizer.</p>
+                
+                <h3>Privacy and Data in Our Online Notepad</h3>
+                <p>Your notes stay on your computer. Our notepad tool doesn't send them to any server.</p>
+                <p>Notes save in your browser's local storage. They remain in your storage until you delete them.</p>
+                <p>Clearing your browser data will remove your saved notes from the online notepad saved list.</p>
+                <p>Export important notes to your computer for backup outside the online notepad.</p>
+            </div>
+            
+            <div class="faq-section">
+                <h3>Frequently Asked Questions</h3>
+                
+                <div class="faq-item">
+                    <h4>Is this tool free to use?</h4>
+                    <p>Yes, our Digital writing pad is completely free. There are no hidden fees or premium features - just a full-featured online notepad for everyone.</p>
+                </div>
+                
+                <div class="faq-item">
+                    <h4>Do I need to create an account to use this Notepad?</h4>
+                    <p>No. Our Online memo pad works without accounts or logins. Just open and start writing immediately.</p>
+                </div>
+                
+                <div class="faq-item">
+                    <h4>Where are my notes saved?</h4>
+                    <p>Notes save in your browser's local storage. They stay on your device, not on remote servers, ensuring privacy in your Online text editor usage.</p>
+                </div>
+                
+                <div class="faq-item">
+                    <h4>Will I lose my notes if I clear my browser data ?</h4>
+                    <p>Yes. Export important notes to your computer as backup before clearing browser data to preserve your Web-based notepad content.</p>
+                </div>
+                
+                <div class="faq-item">
+                    <h4>Can I use it offline?</h4>
+                    <p>Once loaded, you can use most features offline. Some export options may need internet access, but the core Digital notepad functions work without a connection.</p>
+                </div>
+                
+                <div class="faq-item">
+                    <h4>Is there a limit to how many notes I can save in this Web notepad?</h4>
+                    <p>The limit depends on your browser's storage capacity. Most users can save hundreds of notes in their Note-taking tool collection.</p>
+                </div>
+                
+                <div class="faq-item">
+                    <h4>How do I recover deleted notes ?</h4>
+                    <p>Once deleted, notes can't be recovered. Always export important notes as backup when using our Online writing tool.</p>
+                </div>
+                
+                <div class="faq-item">
+                    <h4>Can I use your Notepad on my phone?</h4>
+                    <p>Yes, our Virtual notepad works on mobile browsers. The interface adjusts to fit smaller screens for on-the-go note-taking.</p>
+                </div>
+                
+                <div class="faq-item">
+                    <h4>Does this Web-based text editor work with screen readers?</h4>
+                    <p>Our Online note editor supports basic accessibility features and works with most screen readers for inclusive use.</p>
+                </div>
+                
+                <div class="faq-item">
+                    <h4>How do I report bugs or suggest features for this Tool?</h4>
+                    <p>Contact us through form in contact us page to help improve our Simple text editor service.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    <footer class="footer">
+        <ul class="footer-menu">
+            <li><a href="about-me.html">About</a></li>
+            <li><a href="privacy-policy.html">Privacy Policy</a></li>
+            <li><a href="contact-us.html">Contact Us</a></li>
+        </ul>
+    </footer>
+    
+    <script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script src="main.js" type="module"></script>
+</body>
+</html>
