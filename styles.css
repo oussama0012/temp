@@ -141,6 +141,7 @@ body {
 .notepad-container.fullscreen-mode .toolbar {
     border-radius: 0;
     padding: 20px;
+    margin-top: 20px;
 }
 
 .notepad-container.fullscreen-mode .editor-container {
