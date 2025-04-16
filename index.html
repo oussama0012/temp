@@ -47,10 +47,22 @@
         }
     }
     </script>
+    <script src="https://unpkg.com/docx@7.1.0/build/index.js"></script>
     
-     <!-- Add the Ezoic script here -->
+    <!-- Add the Ezoic script here -->
     <script src="https://go.ezoic.net/ezoic.js"></script>
-    
+    <!-- Add docx.js import map for ESM support -->
+    <script type="importmap">
+    {
+      "imports": {
+        "docx": "https://unpkg.com/docx@7.1.0/build/index.js"
+      }
+    }
+    </script>
+    <!-- Add docx.js script for DOCX export -->
+    <script src="https://unpkg.com/docx@7.1.0/build/index.js"></script>
+    <!-- Add print-to-pdf helper script -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" integrity="sha512-GsLlZN/3F2ErC5ifS5QtgpiJtWd43JWSuIgh7mbzZ8zBps+dvLusV+eNQATqgA/HdeKFVgA5v3S/cIrLF7QnIg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 </head>
 <body>
     <div class="ad-container top-ad">
@@ -86,6 +98,9 @@
                     <button class="toolbar-btn" data-action="print" title="Print Note">
                         <i class="ri-printer-line"></i>
                     </button>
+                    <div class="word-counter-container">
+                        <span id="word-counter">0 words | 0 characters</span>
+                    </div>
                 </div>
                 
                 <div class="separator"></div>
@@ -221,6 +236,21 @@
                     </button>
                     <button class="toolbar-btn" data-action="image" title="Insert Image">
                         <i class="ri-image-line"></i>
+                    </button>
+                    <button class="toolbar-btn" data-action="code" title="Insert Code Block">
+                        <i class="ri-code-line"></i>
+                    </button>
+                    <button class="toolbar-btn" data-action="table" title="Insert Table">
+                        <i class="ri-table-line"></i>
+                    </button>
+                    <button class="toolbar-btn" data-action="blockquote" title="Insert Blockquote">
+                        <i class="ri-double-quotes-l"></i>
+                    </button>
+                    <button class="toolbar-btn" data-action="horizontalLine" title="Insert Horizontal Line">
+                        <i class="ri-separator"></i>
+                    </button>
+                    <button class="toolbar-btn" data-action="findReplace" title="Find and Replace">
+                        <i class="ri-find-replace-line"></i>
                     </button>
                     <button class="toolbar-btn" data-action="removeFormat" title="Clear Formatting">
                         <i class="ri-format-clear"></i>
@@ -358,7 +388,7 @@
                 <h3>Privacy and Data in Our Online Notepad</h3>
                 <p>Your notes stay on your computer. Our notepad tool doesn't send them to any server.</p>
                 <p>Notes save in your browser's local storage. They remain in your storage until you delete them.</p>
-                <p>Clearing your browser data will remove your saved notes from the online notepad saved list.</p>
+                <p>Clearing your browser data will remove your saved notes from the online notepad.</p>
                 <p>Export important notes to your computer for backup outside the online notepad.</p>
             </div>
             
@@ -425,6 +455,8 @@
         </ul>
     </footer>
     
-    <script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script src="main.js" type="module"></script>
+    <script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script>
+    <script src="https://unpkg.com/docx@7.1.0/build/index.js"></script>
+    <script src="script.js"></script>
 </body>
 </html>
