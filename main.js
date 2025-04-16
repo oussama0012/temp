@@ -1,1859 +1,2061 @@
+// ... existing code ...
+
+function showModal(options) {
+    const backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop';
+    
+    const modalContainer = document.createElement('div');
+    modalContainer.className = 'modal-container';
+    
+    const title = document.createElement('div');
+    title.className = 'modal-title';
+    title.textContent = options.title || 'Notification';
+    
+    const message = document.createElement('div');
+    message.className = 'modal-message';
+    message.textContent = options.message || '';
+    
+    const buttonsContainer = document.createElement('div');
+    buttonsContainer.className = 'modal-buttons';
+    
+    modalContainer.appendChild(title);
+    modalContainer.appendChild(message);
+    
+    // Add content if provided via function
+    if (options.content && typeof options.content === 'function') {
+        const contentElement = options.content();
+        modalContainer.appendChild(contentElement);
+    }
+    
+    // Add input if needed
+    let inputElement = null;
+    if (options.input) {
+        inputElement = document.createElement('input');
+        inputElement.type = 'text';
+        inputElement.className = 'modal-input';
+        inputElement.value = options.inputValue || '';
+        inputElement.placeholder = options.inputPlaceholder || '';
+        modalContainer.appendChild(inputElement);
+    }
+    
+    // Create buttons
+    if (options.buttons) {
+        options.buttons.forEach(button => {
+            const btn = document.createElement('button');
+            btn.className = `modal-btn ${button.primary ? 'modal-btn-primary' : 'modal-btn-secondary'}`;
+            btn.textContent = button.text;
+            btn.onclick = () => {
+                document.body.removeChild(backdrop);
+                if (button.callback) {
+                    if (inputElement) {
+                        button.callback(inputElement.value);
+                    } else {
+                        button.callback();
+                    }
+                }
+            };
+            buttonsContainer.appendChild(btn);
+        });
+    }
+    
+    modalContainer.appendChild(buttonsContainer);
+    backdrop.appendChild(modalContainer);
+    document.body.appendChild(backdrop);
+    
+    if (inputElement) {
+        setTimeout(() => inputElement.focus(), 100);
+    }
+    
+    return {
+        close: () => {
+            if (document.body.contains(backdrop)) {
+                document.body.removeChild(backdrop);
+            }
+        }
+    };
+}
+
 class NotepadApp {
     constructor() {
-        this.notepad = document.getElementById('notepad');
-        this.toolbarBtns = document.querySelectorAll('.toolbar-btn');
-        this.fontSelector = document.getElementById('fontSelector');
-        this.fontSizeSelector = document.getElementById('fontSizeSelector');
-        this.savedFilesContainer = document.getElementById('savedFilesContainer');
-        this.savedFilesList = document.getElementById('savedFilesList');
-        this.toggleSavedFilesBtn = document.getElementById('toggleSavedFiles');
-        this.hasUnsavedChanges = false;
-        this.savedContent = '';
-        this.undoStack = [];  
-        this.redoStack = [];
-        this.lastSavedState = '';
-        this.isUndoRedo = false;
-        this.currentNoteId = null;
-        this.savedNotes = {};
-
-        this.savedRange = null;
-        this.autoSaveInterval = null;
-        this.initAutoSave();
-
-        this.isDarkMode = localStorage.getItem('darkMode') === 'true';
-        this.initTheme();
-
+        // Initialize the notepad application
+        this.setupEditor();
         this.setupEventListeners();
         this.loadSavedNotes();
-        this.renderSavedFiles();
-        
-        // Initialize toggle button as collapsed
-        this.toggleSavedFilesBtn.classList.add('collapsed');
-
-        // Initialize undo stack with current content (which might be empty)
-        this.undoStack.push(this.notepad.innerHTML);
+        this.setupWordCounter(); 
+        this.setupSavedFilesToggle();
+        this.loadNotepadContent(); 
+        this.addBlockquoteExitBehavior();
     }
+    
+    setupEditor() {
+        // Set up the editor with initial state
+        this.notepad = document.getElementById('notepad');
+        this.lastSavedContent = this.notepad.innerHTML;
+        document.execCommand('defaultParagraphSeparator', false, 'p');
 
-    setupEventListeners() {
+        // Initialize custom history stack
+        this.history = [];
+        this.historyIndex = -1;
+        this.maxHistorySize = 50; // Limit history size
+
+        // Save initial state
+        this.saveHistoryState();
+
+        // Add event listener for content changes
         this.notepad.addEventListener('input', () => {
-            if (!this.isUndoRedo) {
-                this.undoStack.push(this.notepad.innerHTML);
-                this.redoStack = [];
-            }
-            this.isUndoRedo = false;
-            this.updateStats();
-            this.checkForChanges();
-        });
-        
-        // Handle paste events to retain formatting in a compatible way
-        this.notepad.addEventListener('paste', (e) => {
-            e.preventDefault();
-            
-            // Get clipboard content as HTML and as plain text
-            const htmlContent = e.clipboardData.getData('text/html');
-            const plainText = e.clipboardData.getData('text/plain');
-            
-            // Use HTML if available (to preserve formatting), otherwise use plain text
-            if (htmlContent) {
-                // Create a temporary div to process the HTML
-                const tempDiv = document.createElement('div');
-                tempDiv.innerHTML = htmlContent;
-                
-                // Process HTML to make formats compatible with the editor
-                this.processFormattedPaste(tempDiv);
-                
-                // Insert the processed content
-                document.execCommand('insertHTML', false, tempDiv.innerHTML);
-            } else {
-                document.execCommand('insertText', false, plainText);
-            }
-            
-            // Update undo stack and mark changes
-            this.undoStack.push(this.notepad.innerHTML);
-            this.checkForChanges();
-        });
-        
-        // Make the notepad focused when clicked anywhere inside
-        this.notepad.addEventListener('click', () => {
-            this.notepad.focus();
-        });
-        
-        this.toolbarBtns.forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                e.preventDefault(); // Prevent any default action
-                this.saveSelection(); // Save selection before handling action
-                this.handleToolbarAction(btn.dataset.action);
-            });
-        });
-        
-        // Add keyboard shortcut support for common actions
-        document.addEventListener('keydown', (e) => {
-            if (e.ctrlKey || e.metaKey) {
-                switch (e.key.toLowerCase()) {
-                    case 'b':
-                        e.preventDefault();
-                        this.handleToolbarAction('bold');
-                        break;
-                    case 'i':
-                        e.preventDefault();
-                        this.handleToolbarAction('italic');
-                        break;
-                    case 'u':
-                        e.preventDefault();
-                        this.handleToolbarAction('underline');
-                        break;
-                    case 's':
-                        e.preventDefault();
-                        this.handleToolbarAction('save');
-                        break;
-                    case 'z':
-                        e.preventDefault();
-                        this.handleToolbarAction('undo');
-                        break;
-                    case 'y':
-                        e.preventDefault();
-                        this.handleToolbarAction('redo');
-                        break;
-                }
-            }
-        });
-
-        this.fontSelector.addEventListener('change', (e) => {
-            this.saveSelection();
-            this.applyFontWithSelectionPreserved(e.target.value);
-        });
-        
-        this.fontSizeSelector.addEventListener('change', (e) => {
-            this.saveSelection();
-            this.applyFontSizeWithSelectionPreserved(e.target.value + 'px');
-        });
-
-        // Make the entire header clickable
-        document.querySelector('.saved-files-header').addEventListener('click', () => {
-            this.toggleSavedFilesPanel();
-        });
-        
-        // Prevent propagation when clicking the toggle button directly
-        this.toggleSavedFilesBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            this.toggleSavedFilesPanel();
-        });
-        
-        // Update the color picker event listener to use our custom selection-based color change
-        // Add listeners to capture the current selection whenever the user clicks or types in the notepad
-        this.notepad.addEventListener('mouseup', () => { this.saveSelection(); });
-        this.notepad.addEventListener('keyup', () => { this.saveSelection(); });
-
-        this.notepad.addEventListener('click', (event) => {
-            if (event.target.tagName === 'A' && event.target.dataset.dynamicLink === 'true') {
-                event.preventDefault(); // Prevent navigation
-                this.modifyOrRemoveLink(event.target);
-            }
-        });
-
-        // Add file import listener to a new toolbar button
-        document.querySelector('[data-action="import"]').addEventListener('click', () => {
-            this.importFile();
-        });
-        
-        // Add dark mode toggle event listener
-        document.querySelector('[data-action="darkMode"]').addEventListener('click', () => {
-            this.toggleDarkMode();
-        });
-
-        // Add color picker event listeners
-        document.getElementById('textColor').addEventListener('input', (e) => {
-            this.saveSelection();
-            this.applyTextColor(e.target.value);
-        });
-        
-        document.getElementById('highlightColor').addEventListener('input', (e) => {
-            this.saveSelection();
-            this.applyHighlightColor(e.target.value);
+            localStorage.setItem('currentNotepadContent', this.notepad.innerHTML);
+            this.saveHistoryState(); // Save state on each input
         });
     }
 
-    processFormattedPaste(container) {
-        // Convert common formatted elements to spans with inline styles
-        const processNode = (node) => {
-            if (node.nodeType === Node.ELEMENT_NODE) {
-                // Process various formatting tags
-                if (node.tagName === 'B' || node.tagName === 'STRONG') {
-                    const span = document.createElement('span');
-                    span.style.fontWeight = 'bold';
-                    while (node.firstChild) {
-                        span.appendChild(node.firstChild);
-                    }
-                    node.parentNode.replaceChild(span, node);
-                    return span;
-                } else if (node.tagName === 'I' || node.tagName === 'EM') {
-                    const span = document.createElement('span');
-                    span.style.fontStyle = 'italic';
-                    while (node.firstChild) {
-                        span.appendChild(node.firstChild);
-                    }
-                    node.parentNode.replaceChild(span, node);
-                    return span;
-                } else if (node.tagName === 'U') {
-                    const span = document.createElement('span');
-                    span.style.textDecoration = 'underline';
-                    while (node.firstChild) {
-                        span.appendChild(node.firstChild);
-                    }
-                    node.parentNode.replaceChild(span, node);
-                    return span;
-                } else {
-                    // Process children recursively
-                    Array.from(node.childNodes).forEach(child => {
-                        processNode(child);
-                    });
-                }
-            }
-            return node;
-        };
-        
-        // Process all nodes in the pasted content
-        Array.from(container.childNodes).forEach(node => {
-            processNode(node);
-        });
-    }
+    saveHistoryState() {
+        // Save the current state of the editor to the history
+        const currentState = this.notepad.innerHTML;
 
-    initTheme() {
-        if (this.isDarkMode) {
-            document.body.classList.add('dark-theme');
-            document.querySelector('[data-action="darkMode"] i').classList.remove('ri-moon-line');
-            document.querySelector('[data-action="darkMode"] i').classList.add('ri-sun-line');
+        // Trim history if it exceeds max size
+        if (this.history.length >= this.maxHistorySize) {
+            this.history.shift(); // Remove oldest state
+            this.historyIndex = Math.max(0, this.historyIndex - 1); // Adjust index if necessary
         }
-    }
-    
-    toggleDarkMode() {
-        this.isDarkMode = !this.isDarkMode;
-        document.body.classList.toggle('dark-theme');
-        localStorage.setItem('darkMode', this.isDarkMode);
-        
-        const darkModeIcon = document.querySelector('[data-action="darkMode"] i');
-        if (this.isDarkMode) {
-            darkModeIcon.classList.remove('ri-moon-line');
-            darkModeIcon.classList.add('ri-sun-line');
-        } else {
-            darkModeIcon.classList.remove('ri-sun-line');
-            darkModeIcon.classList.add('ri-moon-line');
-        }
-    }
 
-    toggleSavedFilesPanel() {
-        const filesList = this.savedFilesList;
-        const toggleBtn = this.toggleSavedFilesBtn;
-        
-        if (filesList.style.display === 'none' || filesList.style.display === '') {
-            filesList.style.display = 'flex';
-            toggleBtn.classList.remove('collapsed');
-        } else {
-            filesList.style.display = 'none';
-            toggleBtn.classList.add('collapsed');
+        // If not at the end of history, truncate the history
+        if (this.historyIndex < this.history.length - 1) {
+            this.history = this.history.slice(0, this.historyIndex + 1);
         }
-    }
 
-    loadSavedNotes() {
-        const savedNotesJSON = localStorage.getItem('savedNotes');
-        if (savedNotesJSON) {
-            this.savedNotes = JSON.parse(savedNotesJSON);
-        }
-        
-        // Backward compatibility with previous version
-        const oldSavedNote = localStorage.getItem('savedNote');
-        if (oldSavedNote && Object.keys(this.savedNotes).length === 0) {
-            const noteId = 'note_' + Date.now();
-            this.savedNotes[noteId] = {
-                content: oldSavedNote,
-                title: this.generateTitle(oldSavedNote),
-                lastModified: new Date().toISOString()
-            };
-            localStorage.setItem('savedNotes', JSON.stringify(this.savedNotes));
-            localStorage.removeItem('savedNote'); // Remove old format
-        }
-        
-        // Load the most recent note if available
-        if (Object.keys(this.savedNotes).length > 0) {
-            // Sort by last modified date and get the most recent
-            const sortedNotes = Object.entries(this.savedNotes)
-                .sort((a, b) => new Date(b[1].lastModified) - new Date(a[1].lastModified));
-            
-            if (sortedNotes.length > 0) {
-                const [noteId, note] = sortedNotes[0];
-                this.loadNote(noteId);
-            }
-        }
-    }
-
-    renderSavedFiles() {
-        this.savedFilesList.innerHTML = '';
-        
-        if (Object.keys(this.savedNotes).length === 0) {
-            this.savedFilesList.innerHTML = `
-                <div class="empty-files-message">No saved notes yet</div>
-            `;
-            return;
-        }
-        
-        // Sort notes by last modified date (newest first)
-        const sortedNotes = Object.entries(this.savedNotes)
-            .sort((a, b) => new Date(b[1].lastModified) - new Date(a[1].lastModified));
-        
-        for (const [noteId, note] of sortedNotes) {
-            const isActive = noteId === this.currentNoteId;
-            const noteCard = document.createElement('div');
-            noteCard.className = `saved-file-card ${isActive ? 'active' : ''}`;
-            noteCard.dataset.noteId = noteId;
-            
-            const formattedDate = this.formatDate(new Date(note.lastModified));
-            
-            noteCard.innerHTML = `
-                <div class="saved-file-title">${note.title || 'Untitled Note'}</div>
-                <div class="saved-file-preview">${note.content.substring(0, 120)}</div>
-                <div class="saved-file-date">${formattedDate}</div>
-                <div class="saved-file-actions">
-                    <button class="file-action-btn rename-note" data-note-id="${noteId}">
-                        <i class="ri-edit-line"></i>
-                    </button>
-                    <button class="file-action-btn delete-note" data-note-id="${noteId}">
-                        <i class="ri-delete-bin-line"></i>
-                    </button>
-                </div>
-            `;
-            
-            noteCard.addEventListener('click', (e) => {
-                // Ignore clicks on action buttons
-                if (!e.target.closest('.delete-note') && !e.target.closest('.rename-note')) {
-                    this.loadNote(noteId);
-                }
-            });
-            
-            this.savedFilesList.appendChild(noteCard);
-        }
-        
-        // Add event listeners for delete buttons
-        document.querySelectorAll('.delete-note').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                e.stopPropagation(); // Prevent card click
-                const noteId = btn.dataset.noteId;
-                this.deleteNote(noteId);
-            });
-        });
-
-        // Add event listeners for rename buttons
-        document.querySelectorAll('.rename-note').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                e.stopPropagation(); // Prevent card click
-                const noteId = btn.dataset.noteId;
-                this.showRenameDialog(noteId);
-            });
-        });
-    }
-    
-    showRenameDialog(noteId) {
-        const note = this.savedNotes[noteId];
-        if (!note) return;
-        
-        const modal = document.createElement('div');
-        modal.className = 'save-modal';
-        modal.innerHTML = `
-            <div class="save-modal-content rename-modal">
-                <h3>Rename Note</h3>
-                <input type="text" id="rename-input" value="${note.title || 'Untitled Note'}" 
-                    class="rename-input" placeholder="Enter a new name">
-                <div class="save-modal-buttons rename-buttons">
-                    <button id="modal-rename">Rename</button>
-                    <button id="modal-cancel-rename">Cancel</button>
-                </div>
-            </div>
-        `;
-        
-        document.body.appendChild(modal);
-        
-        // Focus the input field
-        const renameInput = document.getElementById('rename-input');
-        renameInput.focus();
-        renameInput.select();
-        
-        // Add event listeners
-        document.getElementById('modal-rename').addEventListener('click', () => {
-            const newTitle = renameInput.value.trim() || 'Untitled Note';
-            this.renameNote(noteId, newTitle);
-            document.body.removeChild(modal);
-        });
-        
-        document.getElementById('modal-cancel-rename').addEventListener('click', () => {
-            document.body.removeChild(modal);
-        });
-        
-        // Handle Enter key press
-        renameInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-                const newTitle = renameInput.value.trim() || 'Untitled Note';
-                this.renameNote(noteId, newTitle);
-                document.body.removeChild(modal);
-            }
-        });
-    }
-    
-    renameNote(noteId, newTitle) {
-        if (this.savedNotes[noteId]) {
-            this.savedNotes[noteId].title = newTitle;
-            localStorage.setItem('savedNotes', JSON.stringify(this.savedNotes));
-            this.renderSavedFiles();
-            this.createToast('Note renamed successfully!');
-        }
-    }
-
-    formatDate(date) {
-        const now = new Date();
-        const yesterday = new Date(now);
-        yesterday.setDate(now.getDate() - 1);
-        
-        if (date.toDateString() === now.toDateString()) {
-            return `Today, ${date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`;
-        } else if (date.toDateString() === yesterday.toDateString()) {
-            return `Yesterday, ${date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`;
-        } else {
-            return date.toLocaleDateString([], {
-                month: 'short', 
-                day: 'numeric',
-                year: now.getFullYear() !== date.getFullYear() ? 'numeric' : undefined
-            });
-        }
-    }
-
-    generateTitle(content) {
-        // Extract first line or first few words as title
-        const firstLine = content.split('\n')[0].trim();
-        if (firstLine.length > 0) {
-            return firstLine.length > 30 ? firstLine.substring(0, 30) + '...' : firstLine;
-        }
-        return 'Untitled Note';
-    }
-
-    loadNote(noteId) {
-        if (this.hasUnsavedChanges) {
-            // Show save dialog before loading another note
-            this.showSaveDialog(() => this.doLoadNote(noteId));
-            return;
-        }
-        
-        this.doLoadNote(noteId);
-    }
-    
-    doLoadNote(noteId) {
-        const note = this.savedNotes[noteId];
-        if (note) {
-            this.notepad.innerHTML = note.content;
-            this.savedContent = note.content;
-            this.currentNoteId = noteId;
-            this.hasUnsavedChanges = false;
-            this.updateStats();
-            this.undoStack = [note.content];
-            this.redoStack = [];
-            
-            // Update active state in UI
-            this.renderSavedFiles();
-        }
-    }
-
-    deleteNote(noteId) {
-        this.showDeleteConfirmDialog(noteId);
-    }
-    
-    showDeleteConfirmDialog(noteId) {
-        const modal = document.createElement('div');
-        modal.className = 'save-modal';
-        modal.innerHTML = `
-            <div class="save-modal-content">
-                <h3>Delete Note</h3>
-                <p>Are you sure you want to delete this note? This action cannot be undone.</p>
-                <div class="save-modal-buttons">
-                    <button id="modal-confirm-delete" style="background-color: #f44336;">Delete</button>
-                    <button id="modal-cancel-delete">Cancel</button>
-                </div>
-            </div>
-        `;
-        
-        document.body.appendChild(modal);
-        
-        document.getElementById('modal-confirm-delete').addEventListener('click', () => {
-            delete this.savedNotes[noteId];
-            localStorage.setItem('savedNotes', JSON.stringify(this.savedNotes));
-            
-            // If the deleted note was the current note, clear the editor
-            if (noteId === this.currentNoteId) {
-                this.createNewNote();
-            }
-            
-            this.renderSavedFiles();
-            document.body.removeChild(modal);
-            this.createToast('Note deleted successfully', 'success');
-        });
-        
-        document.getElementById('modal-cancel-delete').addEventListener('click', () => {
-            document.body.removeChild(modal);
-        });
-    }
-
-    checkForChanges() {
-        this.hasUnsavedChanges = this.notepad.innerHTML !== this.savedContent;
-    }
-
-    handleToolbarAction(action) {
-        // Ensure notepad is focused for all actions
-        this.notepad.focus(); 
-        
-        switch(action) {
-            case 'new':
-            case 'save':
-            case 'download':
-            case 'import':
-            case 'print':
-            case 'bold':
-            case 'italic':
-            case 'underline':
-            case 'emoji':
-            case 'link':
-            case 'image':
-            case 'undo':
-            case 'redo':
-            case 'fullscreen':
-                // Handle existing actions
-                this.handleExistingAction(action);
-                break;
-            case 'strikethrough':
-                this.applyFormattingWithSelectionPreserved('strikethrough');
-                break;
-            case 'justifyLeft':
-            case 'justifyCenter':
-            case 'justifyRight':
-            case 'justifyFull':
-                document.execCommand(action, false, null);
-                this.setActiveAlignment(action);
-                break;
-            case 'insertOrderedList':
-            case 'insertUnorderedList':
-                document.execCommand(action, false, null);
-                break;
-            case 'removeFormat':
-                document.execCommand(action, false, null);
-                break;
-            default:
-                // Handle other existing actions
-                this.handleExistingAction(action);
-        }
-        
-        // Update active state for applicable formatting buttons
-        this.updateToolbarState();
-    }
-    
-    handleExistingAction(action) {
-        switch(action) {
-            case 'new':
-                this.createNewNote();
-                break;
-            case 'save':
-                this.saveNote();
-                break;
-            case 'download':
-                this.downloadNote();
-                break;
-            case 'import':
-                this.importFile();
-                break;
-            case 'print':
-                this.printNote();
-                break;
-            case 'bold':
-            case 'italic':
-            case 'underline':
-                document.execCommand(action, false, null);
-                break;
-            case 'emoji':
-                this.showEmojiPicker();
-                break;
-            case 'link':
-                this.showLinkDialog();
-                break;
-            case 'image':
-                this.showImageDialog();
-                break;
-            case 'undo':
-                this.undo();
-                break;
-            case 'redo':
-                this.redo();
-                break;
-            case 'fullscreen':
-                this.toggleFullscreen();
-                break;
-        }
-    }
-    
-    setActiveAlignment(activeAction) {
-        const alignActions = ['justifyLeft', 'justifyCenter', 'justifyRight', 'justifyFull'];
-        
-        alignActions.forEach(action => {
-            const button = document.querySelector(`[data-action="${action}"]`);
-            if (button) {
-                if (action === activeAction) {
-                    button.classList.add('active');
-                } else {
-                    button.classList.remove('active');
-                }
-            }
-        });
-    }
-    
-    updateToolbarState() {
-        // Update formatting buttons
-        const formattingActions = ['bold', 'italic', 'underline', 'strikethrough'];
-        formattingActions.forEach(action => {
-            const button = document.querySelector(`[data-action="${action}"]`);
-            if (button) {
-                button.classList.toggle('active', document.queryCommandState(action));
-            }
-        });
-        
-        // Update alignment buttons
-        const alignmentStates = ['justifyLeft', 'justifyCenter', 'justifyRight', 'justifyFull'];
-        alignmentStates.forEach(state => {
-            if (document.queryCommandState(state)) {
-                this.setActiveAlignment(state);
-            }
-        });
-        
-        // Update list buttons
-        const listActions = ['insertOrderedList', 'insertUnorderedList'];
-        listActions.forEach(action => {
-            const button = document.querySelector(`[data-action="${action}"]`);
-            if (button) {
-                button.classList.toggle('active', document.queryCommandState(action));
-            }
-        });
-    }
-    
-    applyTextColor(color) {
-        if (this.restoreSelection()) {
-            document.execCommand('foreColor', false, color);
-            this.undoStack.push(this.notepad.innerHTML);
-            this.redoStack = [];
-            this.checkForChanges();
-        }
-    }
-    
-    applyHighlightColor(color) {
-        if (this.restoreSelection()) {
-            document.execCommand('hiliteColor', false, color);
-            this.undoStack.push(this.notepad.innerHTML);
-            this.redoStack = [];
-            this.checkForChanges();
-        }
-    }
-
-    createNewNote() {
-        if (this.notepad.innerHTML.trim() !== '' && this.hasUnsavedChanges) {
-            this.showSaveDialog(() => this.clearNotepad());
-        } else {
-            this.clearNotepad();
-        }
-    }
-
-    showSaveDialog(onComplete = null) {
-        const modal = document.createElement('div');
-        modal.className = 'save-modal';
-        modal.innerHTML = `
-            <div class="save-modal-content">
-                <h3>Save your work?</h3>
-                <p>Your note has unsaved changes. What would you like to do?</p>
-                <div class="save-modal-buttons">
-                    <button id="modal-save">Save Note</button>
-                    <button id="modal-export">Export File</button>
-                    <button id="modal-discard">Discard</button>
-                    <button id="modal-cancel">Cancel</button>
-                </div>
-            </div>
-        `;
-        
-        document.body.appendChild(modal);
-        
-        // Add subtle animation when buttons are pressed
-        const buttons = modal.querySelectorAll('button');
-        buttons.forEach(button => {
-            button.addEventListener('mousedown', () => {
-                button.style.transform = 'scale(0.98)';
-            });
-            button.addEventListener('mouseup', () => {
-                button.style.transform = '';
-            });
-        });
-        
-        document.getElementById('modal-save').addEventListener('click', () => {
-            this.saveNote();
-            if (onComplete) onComplete();
-            document.body.removeChild(modal);
-        });
-        
-        document.getElementById('modal-discard').addEventListener('click', () => {
-            if (onComplete) onComplete();
-            document.body.removeChild(modal);
-        });
-        
-        document.getElementById('modal-export').addEventListener('click', () => {
-            this.downloadNote();
-            document.body.removeChild(modal);
-        });
-        
-        document.getElementById('modal-cancel').addEventListener('click', () => {
-            document.body.removeChild(modal);
-        });
-    }
-
-    updateStats() {
-    }
-
-    clearNotepad() {
-        this.notepad.innerHTML = '';
-        this.savedContent = '';
-        this.hasUnsavedChanges = false;
-        this.currentNoteId = null;
-    }
-
-    createToast(message, type = 'success') {
-        const toast = document.createElement('div');
-        toast.className = `toast toast-${type}`;
-        toast.innerHTML = `
-            <div class="toast-content">
-                <i class="${this.getToastIcon(type)}"></i>
-                <span>${message}</span>
-            </div>
-            <div class="toast-progress"></div>
-        `;
-        
-        document.body.appendChild(toast);
-        
-        // Remove toast after animation
-        setTimeout(() => {
-            toast.classList.add('toast-exit');
-            setTimeout(() => {
-                document.body.removeChild(toast);
-            }, 500);
-        }, 3000);
-    }
-
-    getToastIcon(type) {
-        const icons = {
-            'success': 'ri-check-line',
-            'error': 'ri-error-warning-line',
-            'warning': 'ri-alert-line'
-        };
-        return icons[type] || 'ri-information-line';
-    }
-
-    applyFontWithSelectionPreserved(fontFamily) {
-        const selection = window.getSelection();
-        if (!selection.rangeCount) return;
-        
-        const range = selection.getRangeAt(0);
-        
-        if (range.collapsed) {
-            // Create a temporary span if no text is selected
-            const tempSpan = document.createElement('span');
-            tempSpan.textContent = '\u200B'; // Zero-width space
-            tempSpan.style.fontFamily = fontFamily;
-            
-            range.insertNode(tempSpan);
-            
-            // Position cursor after the temp span
-            const newRange = document.createRange();
-            newRange.setStartAfter(tempSpan);
-            newRange.collapse(true);
-            selection.removeAllRanges();
-            selection.addRange(newRange);
-        } else {
-            // Format selected text
-            const selectedContent = range.extractContents();
-            
-            // Create a container for the selected content
-            const span = document.createElement('span');
-            span.style.fontFamily = fontFamily;
-            
-            // Handle nested spans with existing font-family settings
-            const processNodes = (parent, container) => {
-                Array.from(parent.childNodes).forEach(node => {
-                    if (node.nodeType === Node.ELEMENT_NODE && node.nodeName === 'SPAN') {
-                        // Create a new span that combines styles
-                        const newSpan = document.createElement('span');
-                        // Copy all styles except font-family
-                        for (let i = 0; i < node.style.length; i++) {
-                            const styleName = node.style[i];
-                            if (styleName !== 'fontFamily') {
-                                newSpan.style[styleName] = node.style[styleName];
-                            }
-                        }
-                        // Set the new font family
-                        newSpan.style.fontFamily = fontFamily;
-                        
-                        // Process children recursively
-                        processNodes(node, newSpan);
-                        container.appendChild(newSpan);
-                    } else {
-                        // Clone other nodes as-is
-                        container.appendChild(node.cloneNode(true));
-                    }
-                });
-            };
-            
-            // Process the selected content
-            processNodes(selectedContent, span);
-            
-            // Insert the modified content
-            range.insertNode(span);
-            
-            // Restore selection
-            selection.removeAllRanges();
-            const newRange = document.createRange();
-            newRange.selectNode(span);
-            selection.addRange(newRange);
-        }
-        
-        if (!this.isUndoRedo) {
-            this.undoStack.push(this.notepad.innerHTML);
-            this.redoStack = [];
-        }
-        this.checkForChanges();
-        setTimeout(() => this.notepad.focus(), 0);
-    }
-
-    applyFontSizeWithSelectionPreserved(fontSize) {
-        const selection = window.getSelection();
-        if (!selection.rangeCount) return;
-        
-        const range = selection.getRangeAt(0);
-        
-        if (range.collapsed) {
-            // Create a temporary span if no text is selected
-            const tempSpan = document.createElement('span');
-            tempSpan.textContent = '\u200B'; // Zero-width space
-            tempSpan.style.fontSize = fontSize;
-            
-            range.insertNode(tempSpan);
-            
-            // Position cursor after the temp span
-            const newRange = document.createRange();
-            newRange.setStartAfter(tempSpan);
-            newRange.collapse(true);
-            selection.removeAllRanges();
-            selection.addRange(newRange);
-        } else {
-            // Format selected text
-            const selectedContent = range.extractContents();
-            const span = document.createElement('span');
-            span.style.fontSize = fontSize;
-            span.appendChild(selectedContent);
-            range.insertNode(span);
-            
-            // Restore selection
-            selection.removeAllRanges();
-            const newRange = document.createRange();
-            newRange.selectNodeContents(span);
-            selection.addRange(newRange);
-        }
-        
-        if (!this.isUndoRedo) {
-            this.undoStack.push(this.notepad.innerHTML);
-            this.redoStack = [];
-        }
-        this.checkForChanges();
-        setTimeout(() => this.notepad.focus(), 0);
+        this.history.push(currentState);
+        this.historyIndex = this.history.length - 1;
     }
 
     undo() {
-        if (this.undoStack.length > 1) { 
-            // Save current state to redo stack before going back
-            this.redoStack.push(this.notepad.innerHTML);
-            
-            // Remove current state from undo stack
-            this.undoStack.pop(); 
-            
-            // Get the previous state
-            const previousState = this.undoStack[this.undoStack.length - 1]; 
-            
-            this.isUndoRedo = true;
-            
-            // Apply the previous state to the notepad
-            this.notepad.innerHTML = previousState;
-            this.updateStats();
-            this.checkForChanges();
-            
-            // Ensure focus remains in the editor
-            this.notepad.focus();
+        if (this.historyIndex > 0) {
+            this.historyIndex--;
+            this.notepad.innerHTML = this.history[this.historyIndex];
+            localStorage.setItem('currentNotepadContent', this.notepad.innerHTML);
         }
     }
 
     redo() {
-        if (this.redoStack.length > 0) {
-            // Save current state to undo stack
-            this.undoStack.push(this.notepad.innerHTML);
-            
-            // Get the next state from redo stack
-            const nextState = this.redoStack.pop();
-            
-            this.isUndoRedo = true;
-            
-            // Apply the next state to the notepad
-            this.notepad.innerHTML = nextState;
-            this.updateStats();
-            this.checkForChanges();
-            
-            // Ensure focus remains in the editor
-            this.notepad.focus();
+        if (this.historyIndex < this.history.length - 1) {
+            this.historyIndex++;
+            this.notepad.innerHTML = this.history[this.historyIndex];
+            localStorage.setItem('currentNotepadContent', this.notepad.innerHTML);
         }
     }
 
-    scrollNotepadContentInFullscreen() {
-        if (document.querySelector('.notepad-container.fullscreen-mode')) {
-            const notepad = document.getElementById('notepad');
-            notepad.style.maxHeight = 'calc(100vh - 150px)'; 
-            notepad.style.overflowY = 'auto';
-        } else {
-            const notepad = document.getElementById('notepad');
-            notepad.style.maxHeight = '75vh';
+    loadNotepadContent() {
+        // Load saved content from localStorage
+        const savedContent = localStorage.getItem('currentNotepadContent');
+        if (savedContent) {
+            this.notepad.innerHTML = savedContent;
+            this.lastSavedContent = savedContent;
         }
-    }
-
-    toggleFullscreen() {
-        const container = document.querySelector('.notepad-container');
-        container.classList.toggle('fullscreen-mode');
-        
-        const button = document.querySelector('[data-action="fullscreen"]');
-        const icon = button.querySelector('i');
-        if (icon) {
-            const isFullscreen = container.classList.contains('fullscreen-mode');
-            icon.className = isFullscreen ? 'ri-fullscreen-exit-line' : 'ri-fullscreen-line';
-            button.classList.toggle('active', isFullscreen);
-        }
-        
-        this.scrollNotepadContentInFullscreen();
-        
-        // Hide/show elements when in fullscreen mode
-        document.querySelectorAll('.ad-container, .saved-files-container, .tool-description, .guide-section').forEach(el => {
-            el.style.display = container.classList.contains('fullscreen-mode') ? 'none' : '';
-        });
-        
-        // Force layout recalculation to ensure full width
-        if (container.classList.contains('fullscreen-mode')) {
-            setTimeout(() => {
-                container.style.width = '100%';
-                container.style.maxWidth = '100%';
-            }, 0);
-        }
-    }
-
-    saveNote() {
-        const content = this.notepad.innerHTML;
-        const title = this.generateTitle(this.notepad.innerText);
-        const lastModified = new Date().toISOString();
-        
-        if (!this.currentNoteId) {
-            this.currentNoteId = 'note_' + Date.now();
-        }
-        
-        this.savedNotes[this.currentNoteId] = {
-            content,
-            title,
-            lastModified
-        };
-        
-        localStorage.setItem('savedNotes', JSON.stringify(this.savedNotes));
-        this.savedContent = content;
-        this.hasUnsavedChanges = false;
-        this.lastSavedState = content;
-        
-        this.renderSavedFiles();
-        this.createToast('Note saved successfully!', 'success');
-    }
-
-    downloadNote() {
-        this.showDownloadFormatDialog().then(fileFormat => {
-            if (!fileFormat) return; 
-            
-            if (fileFormat === 'pdf') {
-                this.createPDF();
-                return;
-            }
-            
-            if (fileFormat === 'docx') {
-                this.createDOCX();
-                return;
-            }
-            
-            let mimeType, extension, content;
-            switch(fileFormat) {
-                case 'txt':
-                    mimeType = 'text/plain';
-                    extension = 'txt';
-                    content = this.notepad.innerText;
-                    break;
-                case 'html':
-                    mimeType = 'text/html';
-                    extension = 'html';
-                    content = this.notepad.innerHTML;
-                    break;
-                case 'md':
-                    mimeType = 'text/markdown';
-                    extension = 'md';
-                    content = this.notepad.innerText;
-                    break;
-                case 'rtf':
-                    mimeType = 'application/rtf';
-                    extension = 'rtf';
-                    content = this.createRTFContent();
-                    break;
-                default:
-                    mimeType = 'text/plain';
-                    extension = 'txt';
-                    content = this.notepad.innerText;
-            }
-            
-            const blob = new Blob([content], {type: mimeType});
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `note.${extension}`;
-            a.click();
-            URL.revokeObjectURL(url);
-        });
     }
     
-    createRTFContent() {
-        // Basic RTF header
-        let rtfContent = "{\\rtf1\\ansi\\ansicpg1252\\cocoartf2580\\cocoasubrtf220\n";
-        rtfContent += "{\\fonttbl\\f0\\fswiss\\fcharset0 Helvetica;}\n";
-        rtfContent += "{\\colortbl;\\red0\\green0\\blue0;}\n";
-        rtfContent += "\\margl1440\\margr1440\\vieww10800\\viewh8400\\viewkind0\n";
-        rtfContent += "\\pard\\tx720\\tx1440\\tx2160\\tx2880\\tx3600\\tx4320\\tx5040\\tx5760\\tx6480\\tx7200\\tx7920\\tx8640\\pardirnatural\\partightenfactor0\n\n";
-        
-        // Get text with preserved line breaks
-        const textContent = this.notepad.innerText.replace(/\n/g, "\\par\n");
-        rtfContent += "\\f0\\fs24 " + textContent + "\n}";
-        
-        return rtfContent;
-    }
-
-    createPDF() {
-        const htmlContent = `
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <meta charset="UTF-8">
-                <title>Notepad Export</title>
-                <style>
-                    body { 
-                        font-family: ${this.notepad.style.fontFamily || 'Arial'}; 
-                        font-size: ${this.notepad.style.fontSize || '16px'};
-                        line-height: 1.6;
-                        white-space: pre-wrap;
-                        margin: 40px;
-                    }
-                    p { margin: 0.5em 0; }
-                    a { color: #6366f1; }
-                    img { max-width: 100%; height: auto; }
-                    span { display: inline-block; }
-                </style>
-            </head>
-            <body>
-                ${this.notepad.innerHTML}
-            </body>
-            </html>
-        `;
-        
-        const blob = new Blob([htmlContent], {type: 'text/html'});
-        const url = URL.createObjectURL(blob);
-        
-        const script = document.createElement('script');
-        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
-        document.body.appendChild(script);
-        
-        script.onload = () => {
-            const element = document.createElement('div');
-            element.innerHTML = this.notepad.innerHTML;
-            element.style.fontFamily = this.notepad.style.fontFamily || 'Arial';
-            element.style.fontSize = this.notepad.style.fontSize || '16px';
-            element.style.lineHeight = '1.6';
-            element.style.whiteSpace = 'pre-wrap';
-            element.style.padding = '20px';
-            document.body.appendChild(element);
-            
-            const opt = {
-                margin: [0.8, 0.8, 0.8, 0.8],
-                filename: 'note.pdf',
-                image: { type: 'jpeg', quality: 0.98 },
-                html2canvas: { scale: 2, letterRendering: true, useCORS: true },
-                jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' },
-                preserveStyles: true
-            };
-            
-            html2pdf().from(element).set(opt).save().then(() => {
-                document.body.removeChild(element);
-                document.body.removeChild(script);
-                this.createToast('PDF downloaded successfully!', 'success');
+    setupEventListeners() {
+        // Set up event listeners for all toolbar buttons
+        document.querySelectorAll('.toolbar-btn').forEach(button => {
+            button.addEventListener('click', () => {
+                const action = button.getAttribute('data-action');
+                this.handleAction(action, button);
             });
-        };
+        });
+        
+        // Set up font and size selectors
+        const fontSelector = document.getElementById('fontSelector');
+        if (fontSelector) {
+            fontSelector.addEventListener('change', () => {
+                document.execCommand('fontName', false, fontSelector.value);
+            });
+        }
+        
+        const fontSizeSelector = document.getElementById('fontSizeSelector');
+        if (fontSizeSelector) {
+            fontSizeSelector.addEventListener('change', () => {
+                const fontSize = fontSizeSelector.value + 'px';
+                document.execCommand('fontSize', false, '7'); 
+                
+                // Apply the actual font size to all font size 7 elements
+                const elements = document.querySelectorAll('[size="7"]');
+                elements.forEach(el => {
+                    el.removeAttribute('size');
+                    el.style.fontSize = fontSize;
+                });
+                
+                // For selected content
+                const selection = window.getSelection();
+                if (selection.rangeCount > 0) {
+                    const range = selection.getRangeAt(0);
+                    if (!range.collapsed) {
+                        const span = document.createElement('span');
+                        span.style.fontSize = fontSize;
+                        
+                        // If text is selected, wrap it with the span
+                        const content = range.extractContents();
+                        span.appendChild(content);
+                        range.insertNode(span);
+                    }
+                }
+            });
+        }
+        
+        // Set up color pickers
+        const textColor = document.getElementById('textColor');
+        if (textColor) {
+            textColor.addEventListener('input', () => {
+                document.execCommand('foreColor', false, textColor.value);
+            });
+        }
+        
+        const highlightColor = document.getElementById('highlightColor');
+        if (highlightColor) {
+            highlightColor.addEventListener('input', () => {
+                document.execCommand('hiliteColor', false, highlightColor.value);
+            });
+        }
     }
     
-    createDOCX() {
-        const script = document.createElement('script');
-        script.src = 'https://unpkg.com/docx@7.1.0/build/index.js';
-        document.body.appendChild(script);
-        
-        script.onload = () => {
-            const { Document, Packer, Paragraph, TextRun } = docx;
-            
-            // Split content by line breaks and create paragraphs
-            const paragraphs = this.notepad.innerText.split('\n').map(line => {
-                return new Paragraph({
-                    children: [new TextRun(line)],
-                    spacing: {
-                        after: 200
+    handleAction(action, button) {
+        switch (action) {
+            case 'new':
+                if (this.notepad.innerHTML !== '' && this.notepad.innerHTML !== this.lastSavedContent) {
+                    showModal({
+                        title: 'Unsaved Changes',
+                        message: 'You have unsaved changes. Do you want to save before creating a new note?',
+                        buttons: [
+                            {
+                                text: 'Save',
+                                primary: true,
+                                callback: () => {
+                                    this.askSaveLocation(() => {
+                                        this.notepad.innerHTML = '';
+                                        this.lastSavedContent = '';
+                                    });
+                                }
+                            },
+                            {
+                                text: 'Discard',
+                                callback: () => {
+                                    this.notepad.innerHTML = '';
+                                    this.lastSavedContent = '';
+                                }
+                            },
+                            {
+                                text: 'Cancel',
+                                callback: () => {}
+                            }
+                        ]
+                    });
+                } else {
+                    this.notepad.innerHTML = '';
+                    this.lastSavedContent = '';
+                }
+                break;
+                
+            case 'save':
+                this.saveNote();
+                break;
+                
+            case 'download':
+                this.downloadNote();
+                break;
+                
+            case 'import':
+                this.importFile();
+                break;
+                
+            case 'print':
+                this.printNotepad();
+                break;
+                
+            case 'undo':
+                this.undo();
+                // Refocus the notepad after undo to maintain editing context
+                this.notepad.focus();
+                break;
+                
+            case 'redo':
+                this.redo();
+                // Refocus the notepad after redo to maintain editing context  
+                this.notepad.focus();
+                break;
+                
+            case 'bold':
+                document.execCommand('bold');
+                button.classList.toggle('active');
+                break;
+                
+            case 'italic':
+                document.execCommand('italic');
+                button.classList.toggle('active');
+                break;
+                
+            case 'underline':
+                document.execCommand('underline');
+                button.classList.toggle('active');
+                break;
+                
+            case 'strikethrough':
+                document.execCommand('strikethrough');
+                button.classList.toggle('active');
+                break;
+                
+            case 'justifyLeft':
+                document.execCommand('justifyLeft');
+                this.removeAlignActiveClass();
+                button.classList.add('active');
+                break;
+                
+            case 'justifyCenter':
+                document.execCommand('justifyCenter');
+                this.removeAlignActiveClass();
+                button.classList.add('active');
+                break;
+                
+            case 'justifyRight':
+                document.execCommand('justifyRight');
+                this.removeAlignActiveClass();
+                button.classList.add('active');
+                break;
+                
+            case 'justifyFull':
+                document.execCommand('justifyFull');
+                this.removeAlignActiveClass();
+                button.classList.add('active');
+                break;
+                
+            case 'insertOrderedList':
+                document.execCommand('insertOrderedList');
+                button.classList.toggle('active');
+                break;
+                
+            case 'insertUnorderedList':
+                document.execCommand('insertUnorderedList');
+                button.classList.toggle('active');
+                break;
+                
+            case 'emoji':
+                this.showEmojiPicker();
+                break;
+                
+            case 'link':
+                this.createLink();
+                break;
+                
+            case 'image':
+                this.insertImage();
+                break;
+                
+            case 'code':
+                this.insertCode();
+                break;
+                
+            case 'table':
+                this.insertTable();
+                break;
+                
+            case 'blockquote':
+                // Create a blockquote element and insert it
+                const selection = window.getSelection();
+                if (selection.rangeCount > 0) {
+                    const range = selection.getRangeAt(0);
+                    const blockquote = document.createElement('blockquote');
+                    blockquote.style.borderLeft = '4px solid #6366f1';
+                    blockquote.style.paddingLeft = '15px';
+                    blockquote.style.margin = '15px 0';
+                    blockquote.style.fontStyle = 'italic';
+                    blockquote.style.color = '#4a5568';
+
+                    // Add a click handler to exit functionality
+                    blockquote.addEventListener('click', (e) => {
+                        if (e.target === blockquote) {
+                            const range = document.createRange();
+                            range.selectNodeContents(blockquote);
+                            range.collapse(false);
+                            selection.removeAllRanges();
+                            selection.addRange(range);
+                        }
+                    });
+
+                    // If text is selected, wrap it in the blockquote
+                    if (!range.collapsed) {
+                        blockquote.appendChild(range.extractContents());
+                        range.insertNode(blockquote);
+                    } else {
+                        // If no text is selected, create an empty blockquote
+                        blockquote.innerHTML = '<p>Quote text here</p>';
+                        range.insertNode(blockquote);
+                        // Place cursor inside the blockquote
+                        range.selectNodeContents(blockquote.querySelector('p'));
+                        range.collapse(false);
+                        selection.removeAllRanges();
+                        selection.addRange(range);
                     }
+                }
+                break;
+                
+            case 'horizontalLine':
+                document.execCommand('insertHorizontalRule');
+                break;
+                
+            case 'findReplace':
+                this.showFindReplaceDialog();
+                break;
+                
+            case 'removeFormat':
+                document.execCommand('removeFormat');
+                break;
+                
+            case 'fullscreen':
+                this.toggleFullscreen();
+                break;
+                
+            case 'darkMode':
+                this.toggleDarkMode();
+                break;
+        }
+    }
+    
+    removeAlignActiveClass() {
+        document.querySelectorAll('[data-action^="justify"]').forEach(btn => {
+            btn.classList.remove('active');
+        });
+    }
+    
+    saveNote(callback) {
+        this.askSaveLocation(callback);
+    }
+    
+    askSaveLocation(callback) {
+        const content = this.notepad.innerHTML;
+        
+        showModal({
+            title: 'Save Note',
+            message: 'How would you like to save this note?',
+            buttons: [
+                {
+                    text: 'Save as New',
+                    primary: true,
+                    callback: () => {
+                        showModal({
+                            title: 'Save as New Note',
+                            message: 'Enter a title for your note:',
+                            input: true,
+                            inputValue: 'Untitled Note',
+                            buttons: [
+                                {
+                                    text: 'Save',
+                                    primary: true,
+                                    callback: (title) => {
+                                        if (title) {
+                                            const noteObj = {
+                                                id: Date.now(),
+                                                title: title,
+                                                content: content,
+                                                date: new Date().toLocaleString()
+                                            };
+                                            
+                                            let savedNotes = JSON.parse(localStorage.getItem('notes') || '[]');
+                                            savedNotes.push(noteObj);
+                                            localStorage.setItem('notes', JSON.stringify(savedNotes));
+                                            
+                                            this.lastSavedContent = content;
+                                            this.loadSavedNotes();
+                                            
+                                            this.showToast('Note saved successfully!', 'success');
+                                            
+                                            if (typeof callback === 'function') {
+                                                callback();
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    text: 'Cancel',
+                                    callback: () => {}
+                                }
+                            ]
+                        });
+                    }
+                },
+                {
+                    text: 'Update Current',
+                    callback: () => {
+                        // Check if there's an active note
+                        const activeCard = document.querySelector('.saved-file-card.active');
+                        if (activeCard) {
+                            const noteId = parseInt(activeCard.querySelector('.file-action-btn').getAttribute('data-id'));
+                            let savedNotes = JSON.parse(localStorage.getItem('notes') || '[]');
+                            const noteIndex = savedNotes.findIndex(note => note.id === noteId);
+                            
+                            if (noteIndex !== -1) {
+                                savedNotes[noteIndex].content = content;
+                                savedNotes[noteIndex].date = new Date().toLocaleString();
+                                localStorage.setItem('notes', JSON.stringify(savedNotes));
+                                
+                                this.lastSavedContent = content;
+                                this.loadSavedNotes();
+                                
+                                this.showToast('Note updated successfully!', 'success');
+                                
+                                if (typeof callback === 'function') {
+                                    callback();
+                                }
+                            }
+                        } else {
+                            // If no active note, fall back to save as new
+                            showModal({
+                                title: 'No Active Note',
+                                message: 'There is no active note to update. Save as new?',
+                                buttons: [
+                                    {
+                                        text: 'Save as New',
+                                        primary: true,
+                                        callback: () => {
+                                            this.askSaveLocation(callback);
+                                        }
+                                    },
+                                    {
+                                        text: 'Cancel',
+                                        callback: () => {}
+                                    }
+                                ]
+                            });
+                        }
+                    }
+                },
+                {
+                    text: 'Cancel',
+                    callback: () => {}
+                }
+            ]
+        });
+    }
+    
+    loadSavedNotes() {
+        const savedFilesList = document.getElementById('savedFilesList');
+        const savedNotes = JSON.parse(localStorage.getItem('notes') || '[]');
+        
+        if (savedFilesList) {
+            savedFilesList.innerHTML = '';
+            
+            if (savedNotes.length === 0) {
+                savedFilesList.innerHTML = '<div class="empty-files-message">No saved notes yet.</div>';
+                return;
+            }
+            
+            savedNotes.forEach(note => {
+                const noteCard = document.createElement('div');
+                noteCard.className = 'saved-file-card';
+                noteCard.innerHTML = `
+                    <div class="saved-file-title">${note.title}</div>
+                    <div class="saved-file-preview">${this.getPreviewText(note.content)}</div>
+                    <div class="saved-file-date">${note.date}</div>
+                    <div class="saved-file-actions">
+                        <button class="file-action-btn" data-action="rename" data-id="${note.id}" title="Rename">
+                            <i class="ri-edit-line"></i>
+                        </button>
+                        <button class="file-action-btn" data-action="delete" data-id="${note.id}" title="Delete">
+                            <i class="ri-delete-bin-line"></i>
+                        </button>
+                    </div>
+                `;
+                
+                noteCard.addEventListener('click', (e) => {
+                    if (!e.target.closest('.file-action-btn')) {
+                        this.loadNote(note);
+                    }
+                });
+                
+                savedFilesList.appendChild(noteCard);
+            });
+            
+            // Add event listeners for rename and delete buttons
+            document.querySelectorAll('.file-action-btn[data-action="rename"]').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const noteId = parseInt(btn.getAttribute('data-id'));
+                    this.renameNote(noteId);
                 });
             });
             
+            document.querySelectorAll('.file-action-btn[data-action="delete"]').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const noteId = parseInt(btn.getAttribute('data-id'));
+                    this.deleteNote(noteId);
+                });
+            });
+        }
+    }
+    
+    getPreviewText(html) {
+        const div = document.createElement('div');
+        div.innerHTML = html;
+        return div.textContent.substring(0, 100) || 'Empty note';
+    }
+    
+    loadNote(note) {
+        if (this.notepad.innerHTML !== this.lastSavedContent) {
+            showModal({
+                title: 'Unsaved Changes',
+                message: 'You have unsaved changes. Load this note anyway?',
+                buttons: [
+                    {
+                        text: 'Load',
+                        primary: true,
+                        callback: () => {
+                            this.notepad.innerHTML = note.content;
+                            this.lastSavedContent = note.content;
+                            
+                            document.querySelectorAll('.saved-file-card').forEach(card => {
+                                card.classList.remove('active');
+                                if (parseInt(card.querySelector('.file-action-btn').getAttribute('data-id')) === note.id) {
+                                    card.classList.add('active');
+                                }
+                            });
+                        }
+                    },
+                    {
+                        text: 'Cancel',
+                        callback: () => {}
+                    }
+                ]
+            });
+            return;
+        }
+        
+        this.notepad.innerHTML = note.content;
+        this.lastSavedContent = note.content;
+        
+        document.querySelectorAll('.saved-file-card').forEach(card => {
+            card.classList.remove('active');
+            if (parseInt(card.querySelector('.file-action-btn').getAttribute('data-id')) === note.id) {
+                card.classList.add('active');
+            }
+        });
+    }
+    
+    renameNote(noteId) {
+        const savedNotes = JSON.parse(localStorage.getItem('notes') || '[]');
+        const noteIndex = savedNotes.findIndex(note => note.id === noteId);
+        
+        if (noteIndex !== -1) {
+            showModal({
+                title: 'Rename Note',
+                message: 'Enter a new title:',
+                input: true,
+                inputValue: savedNotes[noteIndex].title,
+                buttons: [
+                    {
+                        text: 'Rename',
+                        primary: true,
+                        callback: (newTitle) => {
+                            if (newTitle) {
+                                savedNotes[noteIndex].title = newTitle;
+                                localStorage.setItem('notes', JSON.stringify(savedNotes));
+                                this.loadSavedNotes();
+                            }
+                        }
+                    },
+                    {
+                        text: 'Cancel',
+                        callback: () => {}
+                    }
+                ]
+            });
+        }
+    }
+    
+    deleteNote(noteId) {
+        showModal({
+            title: 'Delete Note',
+            message: 'Are you sure you want to delete this note?',
+            buttons: [
+                {
+                    text: 'Delete',
+                    primary: true,
+                    callback: () => {
+                        let savedNotes = JSON.parse(localStorage.getItem('notes') || '[]');
+                        savedNotes = savedNotes.filter(note => note.id !== noteId);
+                        localStorage.setItem('notes', JSON.stringify(savedNotes));
+                        this.loadSavedNotes();
+                    }
+                },
+                {
+                    text: 'Cancel',
+                    callback: () => {}
+                }
+            ]
+        });
+    }
+    
+    downloadNote() {
+        showModal({
+            title: 'Export Note',
+            message: 'Choose a format to export your note:',
+            content: () => {
+                const container = document.createElement('div');
+                
+                const formatOptions = document.createElement('div');
+                formatOptions.className = 'format-options';
+                
+                const formats = [
+                    { icon: 'ri-file-text-line', name: 'Text (.txt)' },
+                    { icon: 'ri-html5-line', name: 'HTML (.html)' },
+                    { icon: 'ri-markdown-line', name: 'Markdown (.md)' },
+                    { icon: 'ri-file-word-line', name: 'Word (.docx)' },
+                    { icon: 'ri-file-pdf-line', name: 'PDF (.pdf)' }
+                ];
+                
+                formats.forEach(format => {
+                    const option = document.createElement('div');
+                    option.className = 'format-option';
+                    option.innerHTML = `<i class="${format.icon}"></i><span>${format.name}</span>`;
+                    option.addEventListener('click', () => {
+                        this.exportAs(format.name.split('(')[1].replace(')', '').trim());
+                        document.querySelector('.modal-backdrop').remove();
+                    });
+                    formatOptions.appendChild(option);
+                });
+                
+                container.appendChild(formatOptions);
+                return container;
+            },
+            buttons: [
+                {
+                    text: 'Cancel',
+                    callback: () => {}
+                }
+            ]
+        });
+    }
+    
+    exportAs(format) {
+        const content = this.notepad.innerHTML;
+        const textContent = this.notepad.innerText;
+        
+        switch(format) {
+            case '.txt':
+                // Preserve line breaks and spacing in text export
+                const preservedTextContent = this.notepad.innerText.replace(/\n/g, '\r\n');
+                this.downloadFile(preservedTextContent, 'note.txt', 'text/plain');
+                break;
+            case '.html':
+                const htmlContent = `<!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="UTF-8">
+                    <title>Exported Note</title>
+                </head>
+                <body>
+                    ${content}
+                </body>
+                </html>`;
+                this.downloadFile(htmlContent, 'note.html', 'text/html');
+                break;
+            case '.md':
+                // Simple HTML to Markdown conversion
+                let markdown = textContent;
+                this.downloadFile(markdown, 'note.md', 'text/markdown');
+                break;
+            case '.docx':
+                this.exportToDocx();
+                break;
+            case '.pdf':
+                this.exportToPdf();
+                break;
+        }
+    }
+    
+    downloadFile(content, filename, contentType) {
+        const blob = new Blob([content], { type: contentType });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+        this.showToast(`Note exported as ${filename}`, 'success');
+    }
+    
+    exportToDocx() {
+        // Show loading toast
+        this.showToast('Generating DOCX...', 'info');
+
+        try {
+            // Use the docx library to properly create a docx file
+            const { Document, Paragraph, TextRun, Packer, HeadingLevel } = window.docx;
+
+            // Extract text content with basic formatting
+            const content = this.notepad.innerHTML;
+            const div = document.createElement('div');
+            div.innerHTML = content;
+
+            // Convert HTML to docx paragraphs
+            const paragraphs = [];
+            
+            // Process each node to preserve structure
+            const processNode = (node) => {
+                if (node.nodeType === Node.TEXT_NODE) {
+                    if (node.textContent.trim()) {
+                        return [new TextRun(node.textContent)];
+                    }
+                    return [];
+                } else if (node.nodeType === Node.ELEMENT_NODE) {
+                    const runs = [];
+                    
+                    // Process element based on tag type
+                    if (node.tagName === 'BR') {
+                        // Return a paragraph break
+                        return 'paragraph-break';
+                    } 
+                    else if (node.tagName === 'P' || node.tagName === 'DIV' || 
+                             node.tagName === 'H1' || node.tagName === 'H2' || 
+                             node.tagName === 'H3' || node.tagName === 'H4' || 
+                             node.tagName === 'H5' || node.tagName === 'H6' || 
+                             node.tagName === 'LI') {
+                        // Process block elements
+                        let childRuns = [];
+                        for (const childNode of node.childNodes) {
+                            const result = processNode(childNode);
+                            if (result === 'paragraph-break') {
+                                // Add what we have as a paragraph and start a new one
+                                if (childRuns.length > 0) {
+                                    paragraphs.push(new Paragraph({ children: childRuns }));
+                                    childRuns = [];
+                                }
+                            } else if (Array.isArray(result)) {
+                                childRuns = childRuns.concat(result);
+                            }
+                        }
+                        
+                        // Add the paragraph if it has content, with proper heading level if applicable
+                        if (childRuns.length > 0) {
+                            let heading = null;
+                            switch (node.tagName) {
+                                case 'H1': heading = HeadingLevel.HEADING_1; break;
+                                case 'H2': heading = HeadingLevel.HEADING_2; break;
+                                case 'H3': heading = HeadingLevel.HEADING_3; break;
+                                case 'H4': heading = HeadingLevel.HEADING_4; break;
+                                case 'H5': heading = HeadingLevel.HEADING_5; break;
+                                case 'H6': heading = HeadingLevel.HEADING_6; break;
+                                default: heading = null;
+                            }
+                            
+                            paragraphs.push(new Paragraph({ 
+                                children: childRuns,
+                                heading: heading,
+                                spacing: heading ? { before: 240, after: 120 } : undefined
+                            }));
+                        }
+                        
+                        // Add an empty paragraph after block elements for spacing
+                        if (node.tagName !== 'SPAN' && node.tagName !== 'A') {
+                            paragraphs.push(new Paragraph({}));
+                        }
+                        
+                        return 'block-processed';
+                    } else {
+                        // Process inline elements and apply formatting
+                        for (const childNode of node.childNodes) {
+                            const result = processNode(childNode);
+                            if (Array.isArray(result)) {
+                                result.forEach(run => {
+                                    // Apply formatting based on parent element
+                                    if (node.tagName === 'B' || node.tagName === 'STRONG') {
+                                        run.bold = true;
+                                    }
+                                    if (node.tagName === 'I' || node.tagName === 'EM') {
+                                        run.italic = true;
+                                    }
+                                    if (node.tagName === 'U') {
+                                        run.underline = true;
+                                    }
+                                    if (node.tagName === 'STRIKE' || node.tagName === 'S') {
+                                        run.strike = true;
+                                    }
+                                    
+                                    runs.push(run);
+                                });
+                            }
+                        }
+                        return runs;
+                    }
+                }
+                
+                return [];
+            };
+            
+            // Start processing from root nodes
+            for (const node of div.childNodes) {
+                const result = processNode(node);
+                // Only add a new paragraph if it wasn't already processed as a block
+                if (result !== 'block-processed' && Array.isArray(result) && result.length > 0) {
+                    paragraphs.push(new Paragraph({ children: result }));
+                }
+            }
+            
+            // If we ended up with no paragraphs, create one with the plain text
+            if (paragraphs.length === 0) {
+                const plainText = div.textContent.trim();
+                if (plainText) {
+                    // Split by line breaks and create paragraphs
+                    plainText.split('\n').forEach(line => {
+                        paragraphs.push(new Paragraph({
+                            children: [new TextRun(line)]
+                        }));
+                    });
+                }
+            }
+
+            // Create document with standard margins 
             const doc = new Document({
                 sections: [{
-                    properties: {},
+                    properties: {
+                        margin: {
+                            top: 1440, // 1 inch
+                            right: 1440,
+                            bottom: 1440,
+                            left: 1440
+                        }
+                    },
                     children: paragraphs
                 }]
             });
-            
+
+            // Generate the docx file
             Packer.toBlob(doc).then(blob => {
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
                 a.download = 'note.docx';
+                document.body.appendChild(a);
                 a.click();
+                document.body.removeChild(a);
                 URL.revokeObjectURL(url);
-                document.body.removeChild(script);
-                this.createToast('DOCX downloaded successfully!', 'success');
+                this.showToast('DOCX exported successfully!', 'success');
             });
-        };
-    }
-
-    showDownloadFormatDialog() {
-        const modal = document.createElement('div');
-        modal.className = 'save-modal';
-        modal.innerHTML = `
-            <div class="save-modal-content download-format-modal">
-                <h3>Export File</h3>
-                <div class="format-options horizontal">
-                    <div class="format-option" data-format="docx">
-                        <i class="ri-file-word-2-line"></i>
-                        <span>Word (.docx)</span>
-                    </div>
-                </div>
-                <p class="conversion-note">Need other formats? You can convert your .docx file to PDF, TXT and more using external converters after download.</p>
-                <div class="save-modal-buttons">
-                    <button id="export-docx-btn">Export</button>
-                    <button id="convert-docx-btn">Convert</button>
-                    <button id="modal-cancel-download">Cancel</button>
-                </div>
-            </div>
-        `;
-        
-        document.body.appendChild(modal);
-        
-        return new Promise(resolve => {
-            document.querySelector('.format-option[data-format="docx"]').addEventListener('click', () => {
-                document.body.removeChild(modal);
-                resolve('docx');
-            });
+        } catch (error) {
+            console.error("Error generating DOCX:", error);
             
-            document.getElementById('export-docx-btn').addEventListener('click', () => {
-                document.body.removeChild(modal);
-                resolve('docx');
-            });
-            
-            document.getElementById('convert-docx-btn').addEventListener('click', () => {
-                window.open('https://www.online-convert.com/file-format/docx', '_blank');
-                document.body.removeChild(modal);
-                resolve(null);
-            });
-            
-            document.getElementById('modal-cancel-download').addEventListener('click', () => {
-                document.body.removeChild(modal);
-                resolve(null);
-            });
-        });
-    }
-
-    saveSelection() {
-        const selection = window.getSelection();
-        if (selection && selection.rangeCount > 0) {
-            this.savedRange = selection.getRangeAt(0).cloneRange();
-            
-            // Store the parent element for context
-            if (this.savedRange.commonAncestorContainer.nodeType === Node.TEXT_NODE) {
-                this.selectedContext = this.savedRange.commonAncestorContainer.parentNode;
-            } else {
-                this.selectedContext = this.savedRange.commonAncestorContainer;
-            }
-        }
-    }
-
-    restoreSelection() {
-        if (this.savedRange && this.notepad.contains(this.savedRange.commonAncestorContainer)) {
-            const selection = window.getSelection();
-            selection.removeAllRanges();
-            selection.addRange(this.savedRange);
-            return true;
-        }
-        return false;
-    }
-
-    showEmojiPicker() {
-        this.saveSelection();
-        
-        // Check if there's no valid selection or if the selection is outside the notepad
-        if (!this.savedRange || !this.notepad.contains(this.savedRange.commonAncestorContainer)) {
-            this.createToast('Please select a location inside the notepad to insert an emoji.', 'warning');
-            this.notepad.focus();
-            return;
-        }
-        
-        const backdrop = document.createElement('div');
-        backdrop.className = 'emoji-backdrop';
-        
-        const modal = document.createElement('div');
-        modal.className = 'emoji-modal';
-        modal.innerHTML = `
-            <div class="emoji-modal-header">
-                <h3>Emojis & Special Characters</h3>
-                <button class="emoji-close-btn">&times;</button>
-            </div>
-            <div class="emoji-tabs">
-                <div class="emoji-tab active" data-tab="emoji">😀 Emojis</div>
-                <div class="emoji-tab" data-tab="special">✓ Special Characters</div>
-                <div class="emoji-tab" data-tab="math">∑ Math Symbols</div>
-                <div class="emoji-tab" data-tab="arrows">← Arrows</div>
-                <div class="emoji-tab" data-tab="currency">$ Currency</div>
-            </div>
-            <div class="emoji-content"></div>
-        `;
-        
-        document.body.appendChild(backdrop);
-        document.body.appendChild(modal);
-        
-        this.loadEmojiTab('emoji');
-        
-        document.querySelector('.emoji-close-btn').addEventListener('click', () => {
-            document.body.removeChild(backdrop);
-            document.body.removeChild(modal);
-        });
-        
-        backdrop.addEventListener('click', () => {
-            document.body.removeChild(backdrop);
-            document.body.removeChild(modal);
-        });
-        
-        document.querySelectorAll('.emoji-tab').forEach(tab => {
-            tab.addEventListener('click', () => {
-                document.querySelectorAll('.emoji-tab').forEach(t => t.classList.remove('active'));
-                tab.classList.add('active');
-                this.loadEmojiTab(tab.dataset.tab);
-            });
-        });
-    }
-    
-    loadEmojiTab(tab, searchTerm = '') {
-        const emojiContent = document.querySelector('.emoji-content');
-        let content = '';
-        
-        switch(tab) {
-            case 'emoji':
-                const emojis = [
-                    '😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '🙃', 
-                    '😉', '😊', '😇', '🥰', '😍', '🤩', '😘', '😗', '☺️', '😚', 
-                    '😙', '🥲', '😋', '😛', '😜', '🤪', '😝', '🤑', '🤗', '🤭', 
-                    '🤫', '🤔', '🤐', '🤨', '😐', '😑', '😶', '😏', '😒', '🙄', 
-                    '😬', '🤥', '😌', '😔', '😪', '🤤', '😴', '😷', '🤒', '🤕', 
-                    '🤢', '🤮', '🤧', '🥵', '🥶', '🥴', '😵', '🤯', '🤠', '🥳', 
-                    '😎', '🤓', '🧐', '😕', '😟', '🙁', '☹️', '😮', '😯', '😲', 
-                    '😳', '🥺', '😦', '😧', '😨', '😰', '😥', '😢', '😭', '😱', 
-                    '😖', '😣', '😞', '😓', '😩', '😫', '🥱', '😤', '😡', '😠', 
-                    '🤬', '😈', '👿', '💀', '☠️', '💩', '🤡', '👹', '👺', '👻',
-                    '👽', '👾', '🤖', '😺', '😸', '😹', '😻', '😼', '😽', '🙀',
-                    '😿', '😾', '🙈', '🙉', '🙊', '💋', '💌', '💘', '💝', '💖',
-                    '💗', '💓', '💞', '💕', '💟', '❣️', '💔', '❤️', '🧡', '💛',
-                    '💚', '💙', '💜', '🤎', '🖤', '🤍', '💯', '💢', '💥', '💫'
-                ];
-                
-                content = '<div class="emoji-grid">';
-                emojis.forEach(emoji => {
-                    content += `<div class="emoji-item" data-char="${emoji}">${emoji}</div>`;
-                });
-                content += '</div>';
-                break;
-                
-            case 'special':
-                const specialChars = [
-                    '©', '®', '™', '§', '¶', '†', '‡', '•', '·', '…',
-                    '‰', '‱', '′', '″', '‴', '‵', '‶', '‷', '⁂', '⁃',
-                    '⁄', '⁎', '⁏', '⁑', '⁓', '⁕', '⁖', '⁘', '⁙', '⁚',
-                    '⁛', '⁜', '⁝', '⁞', '°', '±', '÷', '×', '≈', '≠',
-                    '≤', '≥', '∞', '√', '∛', '∜', '∟', '∠', '∡', '∢',
-                    '∩', '∪', '∫', '∬', '∭', '∮', '∯', '∰', '∱', '∲',
-                    '∳', '≡', '≢', '≣', '≤', '≥', '≦', '≧', '≨', '≩',
-                    '≪', '≫', '≬', '≭', '≮', '≯', '≰', '≱', '≲', '≳',
-                    '≴', '≵', '≶', '≷', '≸', '≹', '≺', '≻', '≼', '≽',
-                    '≾', '≿', '⊀', '⊁', '⊂', '⊃', '⊄', '⊅', '⊆', '⊇'
-                ];
-                
-                content = '<div class="special-char-grid">';
-                specialChars.forEach(char => {
-                    content += `<div class="special-char-item" data-char="${char}">${char}</div>`;
-                });
-                content += '</div>';
-                break;
-                
-            case 'math':
-                const mathSymbols = [
-                    '+', '−', '×', '÷', '=', '≠', '≈', '<', '>', '≤',
-                    '≥', '±', '∓', '∞', '∝', '∑', '∏', '∂', '∆', '√',
-                    '∛', '∜', '∫', '∬', '∭', '∮', '∇', '∴', '∵', '∶',
-                    '∷', '∼', '∽', '∾', '≀', '≁', '≂', '≃', '≄', '≅',
-                    '≆', '≇', '≈', '≉', '≊', '≋', '≌', '≍', '≎', '≏',
-                    '⊕', '⊖', '⊗', '⊘', '⊙', '⊚', '⊛', '⊜', '⊝', '⊞',
-                    '⊟', '⊠', '⊡', '⊢', '⊣', '⊤', '⊥', '⊦', '⊧', '⊨',
-                    '⊩', '⊪', '⊫', '⊬', '⊭', '⊮', '⊯', '⋀', '⋁', '⋂',
-                    '⋃', '⋄', '⋅', '⋆', '⋇', '⋈', '⋉', '⋊', '⋋', '⋌',
-                    '⋍', '⋎', '⋏', '⋐', '⋑', '⋒', '⋓', '⋔', '⋕', '⋖'
-                ];
-                
-                content = '<div class="special-char-grid">';
-                mathSymbols.forEach(char => {
-                    content += `<div class="special-char-item" data-char="${char}">${char}</div>`;
-                });
-                content += '</div>';
-                break;
-                
-            case 'arrows':
-                const arrows = [
-                    '←', '→', '↑', '↓', '↔', '↕', '↖', '↗', '↘', '↙',
-                    '↚', '↛', '↜', '↝', '↞', '↟', '↠', '↡', '↢', '↣',
-                    '↤', '↥', '↦', '↧', '↨', '↩', '↪', '↫', '↬', '↭',
-                    '↮', '↯', '↰', '↱', '↲', '↳', '↴', '↵', '↶', '↷',
-                    '↸', '↹', '↺', '↻', '↼', '↽', '↾', '↿', '⇀', '⇁',
-                    '⇂', '⇃', '⇄', '⇅', '⇆', '⇇', '⇈', '⇉', '⇊', '⇋',
-                    '⇌', '⇍', '⇎', '⇏', '⇐', '⇑', '⇒', '⇓', '⇔', '⇕',
-                    '⇖', '⇗', '⇘', '⇙', '⇚', '⇛', '⇜', '⇝', '⇞', '⇟',
-                    '⇠', '⇡', '⇢', '⇣', '⇤', '⇥', '⇦', '⇧', '⇨', '⇩',
-                    '⇪', '⇫', '⇬', '⇭', '⇮', '⇯', '⇰', '⇱', '⇲', '⇳'
-                ];
-                
-                content = '<div class="special-char-grid">';
-                arrows.forEach(char => {
-                    content += `<div class="special-char-item" data-char="${char}">${char}</div>`;
-                });
-                content += '</div>';
-                break;
-                
-            case 'currency':
-                const currency = [
-                    '$', '¢', '£', '¤', '¥', '֏', '؋', '₠', '₡', '₢',
-                    '₣', '₤', '₥', '₦', '₧', '₨', '₩', '₪', '₫', '€',
-                    '₭', '₮', '₯', '₰', '₱', '₲', '₳', '₴', '₵', '₶',
-                    '₷', '₸', '₹', '₺', '₻', '₼', '₽', '₾', '₿', '꠸',
-                    '﷼', '﹩', '＄', '￠', '￡', '￥', '￦', '𑿝', '𑿞', '𑿟',
-                    '𑿠', '𞋿', '𞲰'
-                ];
-                
-                content = '<div class="special-char-grid">';
-                currency.forEach(char => {
-                    content += `<div class="special-char-item" data-char="${char}">${char}</div>`;
-                });
-                content += '</div>';
-                break;
-        }
-        
-        emojiContent.innerHTML = content;
-        
-        const charItems = document.querySelectorAll('.emoji-item, .special-char-item');
-        charItems.forEach(item => {
-            item.addEventListener('click', () => {
-                const char = item.dataset.char;
-                this.insertCharAtCursor(char);
-            });
-        });
-    }
-    
-    insertCharAtCursor(char) {
-        if (this.savedRange) {
-            const selection = window.getSelection();
-            selection.removeAllRanges();
-            selection.addRange(this.savedRange);
-        }
-        
-        const selection = window.getSelection();
-        if (selection.rangeCount) {
-            const range = selection.getRangeAt(0);
-            
-            if (!range.collapsed) {
-                range.deleteContents();
-            }
-            
-            const textNode = document.createTextNode(char);
-            range.insertNode(textNode);
-            
-            range.setStartAfter(textNode);
-            range.setEndAfter(textNode);
-            selection.removeAllRanges();
-            selection.addRange(range);
-            
-            this.undoStack.push(this.notepad.innerHTML);
-            this.redoStack = [];
-            
-            this.checkForChanges();
-        }
-        
-        const backdrop = document.querySelector('.emoji-backdrop');
-        const modal = document.querySelector('.emoji-modal');
-        if (backdrop && modal) {
-            document.body.removeChild(backdrop);
-            document.body.removeChild(modal);
-        }
-        
-        this.notepad.focus();
-    }
-
-    showLinkDialog() {
-        this.saveSelection();
-        
-        // Check if there's no valid selection or if the selection is outside the notepad
-        if (!this.savedRange || !this.notepad.contains(this.savedRange.commonAncestorContainer)) {
-            this.createToast('Please select a location inside the notepad to insert a link.', 'warning');
-            this.notepad.focus();
-            return;
-        }
-        
-        const modal = document.createElement('div');
-        modal.className = 'save-modal';
-        modal.innerHTML = `
-            <div class="save-modal-content link-modal">
-                <h3>Insert Link</h3>
-                <div class="link-form">
-                    <div class="form-group">
-                        <label for="link-text">Link Text</label>
-                        <input type="text" id="link-text" placeholder="Display text for the link">
-                    </div>
-                    <div class="form-group">
-                        <label for="link-url">URL</label>
-                        <input type="text" id="link-url" placeholder="https://example.com">
-                    </div>
-                </div>
-                <div class="save-modal-buttons">
-                    <button id="insert-link-btn">Insert Link</button>
-                    <button id="cancel-link-btn">Cancel</button>
-                </div>
-            </div>
-        `;
-        
-        document.body.appendChild(modal);
-        
-        document.getElementById('link-text').focus();
-        
-        if (this.savedRange && !this.savedRange.collapsed) {
-            const selectedText = this.savedRange.toString();
-            document.getElementById('link-text').value = selectedText;
-        }
-        
-        document.getElementById('insert-link-btn').addEventListener('click', () => {
-            const linkText = document.getElementById('link-text').value.trim();
-            let linkUrl = document.getElementById('link-url').value.trim();
-            
-            if (linkUrl && !linkUrl.match(/^[a-zA-Z]+:\/\//)) {
-                linkUrl = 'http://' + linkUrl;
-            }
-            
-            if (linkText && linkUrl) {
-                this.insertLink(linkText, linkUrl);
-                document.body.removeChild(modal);
-            } else {
-                document.getElementById('link-text').classList.add('error');
-                document.getElementById('link-url').classList.add('error');
-            }
-        });
-        
-        document.getElementById('cancel-link-btn').addEventListener('click', () => {
-            document.body.removeChild(modal);
-        });
-    }
-    
-    insertLink(text, url) {
-        if (this.savedRange) {
-            const selection = window.getSelection();
-            selection.removeAllRanges();
-            selection.addRange(this.savedRange);
-            
-            const link = document.createElement('a');
-            link.href = url;
-            link.textContent = text;
-            link.target = '_blank'; 
-            link.rel = 'noopener noreferrer'; 
-            link.dataset.dynamicLink = 'true'; 
-            
-            if (!this.savedRange.collapsed) {
-                this.savedRange.deleteContents();
-            }
-            
-            this.savedRange.insertNode(link);
-            
-            const newRange = document.createRange();
-            newRange.setStartAfter(link);
-            newRange.collapse(true);
-            selection.removeAllRanges();
-            selection.addRange(newRange);
-            
-            this.undoStack.push(this.notepad.innerHTML);
-            this.redoStack = [];
-            this.checkForChanges();
-            
-            this.notepad.focus();
+            // Fallback to text export  
+            this.showToast('Advanced DOCX export failed. Exporting as text.', 'warning');
+            const textContent = this.notepad.innerText;
+            this.downloadFile(textContent, 'note.txt', 'text/plain');
         }
     }
     
-    modifyOrRemoveLink(linkElement) {
-        const modal = document.createElement('div');
-        modal.className = 'save-modal';
-        modal.innerHTML = `
-            <div class="save-modal-content link-modal">
-                <h3>Modify Link</h3>
-                <div class="link-form">
-                    <div class="form-group">
-                        <label for="link-text">Link Text</label>
-                        <input type="text" id="link-text" value="${linkElement.textContent}" placeholder="Display text for the link">
-                    </div>
-                    <div class="form-group">
-                        <label for="link-url">URL</label>
-                        <input type="text" id="link-url" value="${linkElement.href}" placeholder="https://example.com">
-                    </div>
-                </div>
-                <div class="save-modal-buttons">
-                    <button id="update-link-btn">Update Link</button>
-                    <button id="remove-link-btn">Remove Link</button>
-                    <button id="cancel-link-btn">Cancel</button>
-                </div>
-            </div>
-        `;
-        
-        document.body.appendChild(modal);
-        
-        document.getElementById('link-text').focus();
-        
-        document.getElementById('update-link-btn').addEventListener('click', () => {
-            const linkText = document.getElementById('link-text').value.trim();
-            let linkUrl = document.getElementById('link-url').value.trim();
-            
-            if (linkUrl && !linkUrl.match(/^[a-zA-Z]+:\/\//)) {
-                linkUrl = 'http://' + linkUrl;
-            }
-            
-            if (linkText && linkUrl) {
-                linkElement.textContent = linkText;
-                linkElement.href = linkUrl;
-                this.undoStack.push(this.notepad.innerHTML);
-                this.redoStack = [];
-                this.checkForChanges();
-                document.body.removeChild(modal);
-                this.notepad.focus();
-            } else {
-                document.getElementById('link-text').classList.add('error');
-                document.getElementById('link-url').classList.add('error');
-            }
-        });
-        
-        document.getElementById('remove-link-btn').addEventListener('click', () => {
-            linkElement.remove();
-            this.undoStack.push(this.notepad.innerHTML);
-            this.redoStack = [];
-            this.checkForChanges();
-            document.body.removeChild(modal);
-            this.notepad.focus();
-        });
-        
-        document.getElementById('cancel-link-btn').addEventListener('click', () => {
-            document.body.removeChild(modal);
-            this.notepad.focus();
-        });
-    }
-    
-    showImageDialog() {
-        this.saveSelection();
-        
-        // Check if there's no valid selection or if the selection is outside the notepad
-        if (!this.savedRange || !this.notepad.contains(this.savedRange.commonAncestorContainer)) {
-            this.createToast('Please select a location inside the notepad to insert an image.', 'warning');
-            this.notepad.focus();
-            return;
-        }
-        
-        const modal = document.createElement('div');
-        modal.className = 'save-modal';
-        modal.innerHTML = `
-            <div class="save-modal-content image-modal">
-                <h3>Insert Image</h3>
-                <div class="image-form">
-                    <div class="form-group">
-                        <label for="image-url">Image URL</label>
-                        <input type="text" id="image-url" placeholder="https://example.com/image.jpg">
-                    </div>
-                    <div class="form-group">
-                        <label>Or Upload From Computer</label>
-                        <input type="file" id="image-file" accept="image/*">
-                    </div>
-                    <div class="form-group">
-                        <label for="image-alt">Alt Text (Description)</label>
-                        <input type="text" id="image-alt" placeholder="Image description">
-                    </div>
-                </div>
-                <div class="save-modal-buttons">
-                    <button id="insert-image-btn">Insert Image</button>
-                    <button id="cancel-image-btn">Cancel</button>
-                </div>
-            </div>
-        `;
-        
-        document.body.appendChild(modal);
-        
-        document.getElementById('image-url').focus();
-        
-        document.getElementById('insert-image-btn').addEventListener('click', () => {
-            const imageUrl = document.getElementById('image-url').value.trim();
-            const imageFile = document.getElementById('image-file').files[0];
-            const imageAlt = document.getElementById('image-alt').value.trim() || 'Image';
-            
-            if (imageUrl) {
-                this.insertImage(imageUrl, imageAlt);
-                document.body.removeChild(modal);
-            } else if (imageFile) {
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    this.insertImage(e.target.result, imageAlt);
-                    document.body.removeChild(modal);
-                };
-                reader.readAsDataURL(imageFile);
-            } else {
-                document.getElementById('image-url').classList.add('error');
-                document.getElementById('image-file').classList.add('error');
-            }
-        });
-        
-        document.getElementById('cancel-image-btn').addEventListener('click', () => {
-            document.body.removeChild(modal);
-        });
-    }
-    
-    insertImage(url, alt) {
-        if (this.savedRange) {
-            const selection = window.getSelection();
-            selection.removeAllRanges();
-            selection.addRange(this.savedRange);
-            
-            const img = document.createElement('img');
-            img.src = url;
-            img.alt = alt;
-            img.style.maxWidth = '100%';
-            img.style.height = 'auto';
-            
-            if (!this.savedRange.collapsed) {
-                this.savedRange.deleteContents();
-            }
-            
-            this.savedRange.insertNode(img);
-            
-            const newRange = document.createRange();
-            newRange.setStartAfter(img);
-            newRange.collapse(true);
-            selection.removeAllRanges();
-            selection.addRange(newRange);
-            
-            this.undoStack.push(this.notepad.innerHTML);
-            this.redoStack = [];
-            this.checkForChanges();
-            
-            this.notepad.focus();
-        } else {
-            // If no range is saved, insert at the end of the notepad
-            const img = document.createElement('img');
-            img.src = url;
-            img.alt = alt;
-            img.style.maxWidth = '100%';
-            img.style.height = 'auto';
-            
-            this.notepad.appendChild(img);
-            
-            // Create a new range after the image
-            const selection = window.getSelection();
-            const range = document.createRange();
-            range.setStartAfter(img);
-            range.collapse(true);
-            selection.removeAllRanges();
-            selection.addRange(range);
-            
-            this.undoStack.push(this.notepad.innerHTML);
-            this.redoStack = [];
-            this.checkForChanges();
-            
-            this.notepad.focus();
-        }
-    }
-
     importFile() {
-        const fileInput = document.createElement('input');
-        fileInput.type = 'file';
-        fileInput.accept = '.txt,.html,.md,.rtf,.docx';
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.txt,.html,.md,.rtf,.docx,.pdf,.doc,.odt,.pages';
         
-        fileInput.addEventListener('change', (event) => {
-            const file = event.target.files[0];
-            if (!file) {
-                document.body.removeChild(fileInput);
-                return;
-            }
+        input.onchange = e => {
+            const file = e.target.files[0];
+            if (!file) return;
             
-            if (this.hasUnsavedChanges) {
-                this.showSaveDialog(() => {
-                    this.processImportedFile(file);
-                });
-            } else {
-                this.processImportedFile(file);
-            }
-        }, { once: true });
-        
-        fileInput.click();
-    }
-    
-    processImportedFile(file) {
-        const reader = new FileReader();
-        
-        if (file.name.toLowerCase().endsWith('.docx')) {
-            this.readDocxFile(file);
-            return;
-        }
-        
-        reader.onload = (e) => {
-            const content = e.target.result;
+            this.showToast(`Importing ${file.name}...`, 'info');
             
-            this.notepad.innerHTML = content;
-            this.savedContent = content;
-            this.currentNoteId = null; 
-            this.hasUnsavedChanges = true; 
-            this.updateStats();
-            this.undoStack = [content];
-            this.redoStack = [];
-            
-            this.createToast(`File "${file.name}" opened successfully!`, 'success');
-        };
-        
-        reader.onerror = () => {
-            this.createToast('Error reading file. Please try again.', 'error');
-        };
-        
-        reader.readAsText(file);
-    }
-
-    readDocxFile(file) {
-        const script = document.createElement('script');
-        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.4.21/mammoth.browser.min.js';
-        document.body.appendChild(script);
-        
-        script.onload = () => {
             const reader = new FileReader();
-            
-            reader.onload = (e) => {
-                const arrayBuffer = e.target.result;
-                
-                mammoth.convertToHtml({arrayBuffer})
-                    .then(result => {
-                        this.notepad.innerHTML = result.value;
-                        this.savedContent = result.value;
-                        this.currentNoteId = null;
-                        this.hasUnsavedChanges = true;
-                        this.updateStats();
-                        this.undoStack = [result.value];
-                        this.redoStack = [];
-                        
-                        this.createToast(`File "${file.name}" opened successfully!`, 'success');
-                    })
-                    .catch(error => {
-                        this.createToast('Error parsing Word document. Please try another file.', 'error');
-                        console.error(error);
-                    })
-                    .finally(() => {
-                        document.body.removeChild(script);
+            reader.onload = e => {
+                if (this.notepad.innerHTML !== this.lastSavedContent) {
+                    showModal({
+                        title: 'Unsaved Changes',
+                        message: 'You have unsaved changes. Import this file anyway?',
+                        buttons: [
+                            {
+                                text: 'Import',
+                                primary: true,
+                                callback: () => {
+                                    // Continue with import process
+                                    const extension = file.name.split('.').pop().toLowerCase();
+                                    this.processImportedFile(file, e.target.result, extension);
+                                }
+                            },
+                            {
+                                text: 'Cancel',
+                                callback: () => {}
+                            }
+                        ]
                     });
+                    return;
+                }
+                
+                const extension = file.name.split('.').pop().toLowerCase();
+                this.processImportedFile(file, e.target.result, extension);
             };
             
             reader.onerror = () => {
-                this.createToast('Error reading file. Please try again.', 'error');
-                document.body.removeChild(script);
+                this.showToast('Error reading file. File may be corrupted.', 'error');
+            };
+            
+            // Use the appropriate read method based on file type
+            const extension = file.name.split('.').pop().toLowerCase();
+            if (['rtf', 'docx', 'doc', 'pdf', 'odt', 'pages'].includes(extension)) {
+                reader.readAsArrayBuffer(file); // For binary formats
+            } else {
+                reader.readAsText(file);
+            }
+        };
+        
+        input.click();
+    }
+    
+    processImportedFile(file, content, extension) {
+        try {
+            // Handle different file types appropriately
+            if (extension === 'txt') {
+                // Convert plain text to HTML with proper line breaks
+                const textContent = content;
+                const htmlContent = textContent.replace(/\n/g, '<br>');
+                this.notepad.innerHTML = htmlContent;
+                this.showToast('Text file imported successfully', 'success');
+            } else if (extension === 'html' || extension === 'htm') {
+                // Sanitize HTML content
+                const htmlContent = content;
+                const cleanHtml = this.sanitizeHtml(htmlContent);
+                this.notepad.innerHTML = cleanHtml;
+                this.showToast('HTML file imported successfully', 'success');
+            } else if (extension === 'md') {
+                // Convert markdown to HTML
+                const markdownContent = content;
+                const htmlContent = this.convertMarkdownToHtml(markdownContent);
+                this.notepad.innerHTML = htmlContent;
+                this.showToast('Markdown file imported successfully', 'success');
+            } else if (extension === 'rtf') {
+                // Better RTF handling
+                this.showToast('Processing RTF file...', 'info');
+                this.importRtfContent(content);
+            } else if (['docx', 'doc', 'odt', 'pages'].includes(extension)) {
+                this.showToast(`Importing ${extension.toUpperCase()} file...`, 'info');
+                this.importOfficeDocument(file);
+            } else if (extension === 'pdf') {
+                this.showToast('Processing PDF file...', 'info');
+                this.importPdfDocument(file);
+            } else {
+                // Default fallback - attempt as plain text
+                this.showToast('Unknown file format. Importing as plain text', 'warning');
+                const plainText = content.toString().replace(/[^\r\n\t\x20-\x7E]/g, '');
+                this.notepad.innerHTML = plainText.replace(/\n/g, '<br>');
+            }
+        } catch (error) {
+            console.error("Import error:", error);
+            this.showToast('Error importing file. Trying alternative method...', 'warning');
+            // Fallback to basic text import
+            try {
+                const safeText = content.replace(/[^\r\n\t\x20-\x7E]/g, '');
+                this.notepad.innerHTML = safeText.replace(/\n/g, '<br>');
+                this.showToast('Imported file as plain text', 'warning');
+            } catch (e) {
+                this.showToast('Could not import file. Format may be unsupported.', 'error');
+            }
+        }
+    }
+    
+    sanitizeHtml(html) {
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = html;
+        
+        // Remove potentially harmful elements and attributes
+        const scripts = tempDiv.querySelectorAll('script, iframe, object, embed');
+        scripts.forEach(el => el.remove());
+        
+        // Remove on* attributes
+        const allElements = tempDiv.querySelectorAll('*');
+        allElements.forEach(el => {
+            Array.from(el.attributes).forEach(attr => {
+                if (attr.name.startsWith('on') || attr.name === 'href' && attr.value.startsWith('javascript:')) {
+                    el.removeAttribute(attr.name);
+                }
+            });
+        });
+        
+        return tempDiv.innerHTML;
+    }
+    
+    importRtfContent(rtfData) {
+        try {
+            // Basic RTF to HTML conversion
+            let text = rtfData;
+            if (typeof rtfData !== 'string') {
+                // Convert ArrayBuffer to string
+                const decoder = new TextDecoder('utf-8');
+                text = decoder.decode(rtfData);
+            }
+            
+            // Process RTF content
+            // Remove RTF headers and control sequences
+            text = text.replace(/\\rtf1.*?\\viewkind0/s, '');
+            text = text.replace(/\{\\*\\.*?\}/g, '');
+            text = text.replace(/\\[a-z0-9]+\s?/g, '');
+            
+            // Convert RTF newlines and paragraphs to HTML
+            text = text.replace(/\\par\s/g, '<br>');
+            text = text.replace(/\\line\s/g, '<br>');
+            
+            // Handle special characters
+            text = text.replace(/\\'([0-9a-f]{2})/g, (match, hex) => String.fromCharCode(parseInt(hex, 16)));
+            
+            // Remove remaining RTF syntax
+            text = text.replace(/[\{\}\\]/g, '');
+            
+            // Clean up multiple line breaks
+            text = text.replace(/<br><br><br>/g, '<br><br>');
+            
+            this.notepad.innerHTML = text;
+            this.showToast('RTF file imported', 'success');
+        } catch (e) {
+            console.error("RTF import error:", e);
+            this.showToast('Error processing RTF. Importing as plain text.', 'warning');
+            
+            // Fallback to plain text
+            const plainText = rtfData.toString().replace(/[^\r\n\t\x20-\x7E]/g, '');
+            this.notepad.innerHTML = plainText.replace(/\n/g, '<br>');
+        }
+    }
+    
+    importOfficeDocument(file) {
+        // Enhanced implementation for Office documents
+        try {
+            // Show loading toast
+            this.showToast(`Importing ${file.name.split('.').pop().toUpperCase()} file...`, 'info');
+            
+            // Create a FileReader to read the file
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const arrayBuffer = e.target.result;
+                
+                // Use a more robust approach to extract content from DOCX
+                try {
+                    // For DOCX files, we'll use a better extraction method
+                    // First attempt: Try to extract structured content
+                    this.extractOfficeContent(arrayBuffer, file.name)
+                        .then(content => {
+                            // Apply the content to the notepad
+                            this.notepad.innerHTML = content;
+                            this.showToast(`${file.name.split('.').pop().toUpperCase()} file imported successfully`, 'success');
+                        })
+                        .catch(error => {
+                            console.error("Extraction error:", error);
+                            // Fallback method
+                            this.fallbackTextExtraction(arrayBuffer, file.name);
+                        });
+                } catch (error) {
+                    console.error("DOCX processing error:", error);
+                    this.fallbackTextExtraction(arrayBuffer, file.name);
+                }
+            };
+            
+            reader.onerror = () => {
+                this.showToast('Error reading file. The file may be corrupted.', 'error');
             };
             
             reader.readAsArrayBuffer(file);
-        };
-        
-        script.onerror = () => {
-            this.createToast('Failed to load Word document parser. Please check your internet connection.', 'error');
-            document.body.removeChild(script);
-        };
+        } catch (e) {
+            console.error("Office document import error:", e);
+            this.showToast('Error processing document. Importing as plain text.', 'warning');
+            
+            // Ultimate fallback to plain text
+            const textReader = new FileReader();
+            textReader.onload = e => {
+                const plainText = e.target.result.replace(/[^\r\n\t\x20-\x7E]/g, '');
+                this.notepad.innerHTML = plainText.replace(/\n/g, '<br>');
+            };
+            textReader.readAsText(file);
+        }
     }
-
-    initAutoSave() {
-        this.autoSaveInterval = setInterval(() => {
-            if (this.hasUnsavedChanges) {
-                // Save current selection before auto-saving
-                this.saveSelection();
-                
-                this.saveNote();
-                this.createToast('Auto-saved', 'success');
-                
-                // Restore selection after auto-saving
-                this.restoreSelection();
+    
+    extractOfficeContent(arrayBuffer, fileName) {
+        return new Promise((resolve, reject) => {
+            // Better content extraction logic
+            const extension = fileName.split('.').pop().toLowerCase();
+            
+            if (extension === 'docx') {
+                // Parse DOCX by looking for readable text content in XML
+                // DOCX files are ZIP archives containing XML files
+                try {
+                    // Simple extraction of readable text from DOCX buffer
+                    const array = new Uint8Array(arrayBuffer);
+                    let textContent = '';
+                    
+                    // Look for document.xml content - a common approach for simple DOCX extraction
+                    const documentXmlSignature = 'word/document.xml';
+                    const utf8Encoder = new TextEncoder();
+                    const signatureBytes = utf8Encoder.encode(documentXmlSignature);
+                    
+                    // Try to find the document.xml file within the DOCX (ZIP) structure
+                    for (let i = 0; i < array.length - signatureBytes.length; i++) {
+                        let found = true;
+                        for (let j = 0; j < signatureBytes.length; j++) {
+                            if (array[i + j] !== signatureBytes[j]) {
+                                found = false;
+                                break;
+                            }
+                        }
+                        
+                        if (found) {
+                            // We found a document.xml reference, now look for actual content
+                            // Usually <w:t> tags contain the actual text content
+                            const contentStart = i + 200; // Skip ahead to likely content area
+                            let contentFragment = '';
+                            
+                            // Extract and decode text in chunks
+                            for (let k = contentStart; k < Math.min(contentStart + 100000, array.length); k++) {
+                                // Only include readable ASCII characters
+                                if (array[k] >= 32 && array[k] <= 126) { 
+                                    contentFragment += String.fromCharCode(array[k]);
+                                }
+                            }
+                            
+                            // Try to extract paragraphs from XML-like content
+                            const paragraphs = contentFragment.match(/<w:t[^>]*>(.*?)<\/w:t>/g) || [];
+                            
+                            if (paragraphs.length > 0) {
+                                // Process XML paragraph tags
+                                const parsedContent = paragraphs
+                                    .map(p => p.replace(/<[^>]+>/g, '')) // Remove XML tags
+                                    .join(' ')
+                                    .replace(/\s+/g, ' '); // Normalize whitespace
+                                
+                                // Add paragraph structure
+                                textContent += parsedContent.split('. ')
+                                    .map(sentence => sentence.trim())
+                                    .filter(sentence => sentence.length > 0)
+                                    .map(sentence => `<p>${sentence}${!sentence.endsWith('.') ? '.' : ''}</p>`)
+                                    .join('');
+                            }
+                            
+                            break;
+                        }
+                    }
+                    
+                    if (textContent.length > 0) {
+                        resolve(textContent);
+                    } else {
+                        // No structured content found, try fallback
+                        reject(new Error("No structured content found"));
+                    }
+                } catch (error) {
+                    reject(error);
+                }
+            } else {
+                // For other formats, use more generic approach
+                reject(new Error("Unsupported format for structured extraction"));
             }
-        }, 10000); // Auto-save every 10 seconds
+        });
     }
+    
+    fallbackTextExtraction(arrayBuffer, fileName) {
+        try {
+            // Fallback extraction method for when structured parsing fails
+            this.showToast('Using alternative extraction method...', 'info');
+            
+            const array = new Uint8Array(arrayBuffer);
+            const chunks = [];
+            let currentChunk = '';
+            let inTextBlock = false;
+            let readableCount = 0;
+            
+            // Look for contiguous blocks of text (at least 3 readable chars in a row)
+            for (let i = 0; i < array.length; i++) {
+                const byte = array[i];
+                
+                // Is this a readable ASCII character?
+                if ((byte >= 32 && byte <= 126) || byte === 10 || byte === 13) {
+                    if (byte >= 32 && byte <= 126) {
+                        readableCount++;
+                    }
+                    
+                    // Convert byte to character
+                    const char = String.fromCharCode(byte);
+                    
+                    // Check if we're in a text block
+                    if (readableCount >= 3) {
+                        if (!inTextBlock) {
+                            inTextBlock = true;
+                        }
+                        currentChunk += char;
+                    } else if (inTextBlock) {
+                        // Add spacing or line breaks
+                        if (byte === 10 || byte === 13) {
+                            currentChunk += '\n';
+                        } else {
+                            currentChunk += char;
+                        }
+                    }
+                } else {
+                    // Non-readable character
+                    readableCount = 0;
+                    
+                    // If we were in a text block, end it
+                    if (inTextBlock) {
+                        if (currentChunk.length >= 10) { // Only keep substantial chunks
+                            chunks.push(currentChunk);
+                        }
+                        currentChunk = '';
+                        inTextBlock = false;
+                    }
+                }
+            }
+            
+            // Add the last chunk if it exists
+            if (currentChunk.length >= 10) {
+                chunks.push(currentChunk);
+            }
+            
+            // Process the chunks into a coherent document
+            let content = chunks
+                .join('\n\n')
+                .replace(/[^\x20-\x7E\n]/g, '') // Remove any binary artifacts
+                .replace(/\n{3,}/g, '\n\n'); // Normalize excessive line breaks
+            
+            // Convert to paragraphs
+            const paragraphs = content.split('\n\n');
+            const htmlContent = paragraphs
+                .filter(p => p.trim().length > 0)
+                .map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`)
+                .join('');
+            
+            // Update the notepad with our best effort conversion
+            this.notepad.innerHTML = htmlContent;
+            this.showToast('File imported with basic formatting', 'info');
+        } catch (e) {
+            console.error("Fallback extraction failed:", e);
+            this.notepad.innerHTML = '<p>Could not extract meaningful content from this file. Please try copying the text directly.</p>';
+            this.showToast('File extraction failed', 'error');
+        }
+    }
+    
+    convertMarkdownToHtml(markdown) {
+        // Enhanced markdown conversion
+        let html = markdown;
+        // Headers
+        html = html.replace(/^# (.*?)$/gm, '<h1>$1</h1>');
+        html = html.replace(/^## (.*?)$/gm, '<h2>$1</h2>');
+        html = html.replace(/^### (.*?)$/gm, '<h3>$1</h3>');
+        html = html.replace(/^#### (.*?)$/gm, '<h4>$1</h4>');
+        html = html.replace(/^##### (.*?)$/gm, '<h5>$1</h5>');
+        html = html.replace(/^###### (.*?)$/gm, '<h6>$1</h6>');
+        // Bold
+        html = html.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+        html = html.replace(/__(.*?)__/g, '<b>$1</b>');
+        // Italic
+        html = html.replace(/\*(.*?)\*/g, '<i>$1</i>');
+        html = html.replace(/_(.*?)_/g, '<i>$1</i>');
+        // Strikethrough
+        html = html.replace(/~~(.*?)~~/g, '<strike>$1</strike>');
+        // Blockquote
+        html = html.replace(/^> (.*?)$/gm, '<blockquote>$1</blockquote>');
+        // Code blocks
+        html = html.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+        html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+        // Lists
+        // Unordered lists
+        html = html.replace(/^\* (.*?)$/gm, '<ul><li>$1</li></ul>');
+        html = html.replace(/^- (.*?)$/gm, '<ul><li>$1</li></ul>');
+        // Ordered lists
+        html = html.replace(/^\d+\. (.*?)$/gm, '<ol><li>$1</li></ol>');
+        // Links
+        html = html.replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2">$1</a>');
+        // Images
+        html = html.replace(/!\[(.*?)\]\((.*?)\)/g, '<img src="$2" alt="$1">');
+        // Line breaks
+        html = html.replace(/\n/g, '<br>');
+        // Fix duplicate list tags
+        html = html.replace(/<\/ul><ul>/g, '');
+        html = html.replace(/<\/ol><ol>/g, '');
+        
+        return html;
+    }
+    
+    createLink() {
+        showModal({
+            title: 'Insert Link',
+            message: 'Enter the URL:',
+            input: true,
+            inputValue: 'https://',
+            buttons: [
+                {
+                    text: 'Insert',
+                    primary: true,
+                    callback: (url) => {
+                        if (url) {
+                            document.execCommand('createLink', false, url);
+                        }
+                    }
+                },
+                {
+                    text: 'Cancel',
+                    callback: () => {}
+                }
+            ]
+        });
+    }
+    
+    insertImage() {
+        showModal({
+            title: 'Insert Image',
+            message: 'Enter the image URL or upload from your device:',
+            content: () => {
+                const container = document.createElement('div');
+                
+                // URL input group
+                const urlGroup = document.createElement('div');
+                urlGroup.className = 'form-group';
+                urlGroup.style.marginBottom = '20px';
+                
+                const urlLabel = document.createElement('label');
+                urlLabel.textContent = 'Image URL:';
+                urlLabel.style.display = 'block';
+                urlLabel.style.marginBottom = '5px';
+                
+                const urlInput = document.createElement('input');
+                urlInput.type = 'text';
+                urlInput.value = 'https://';
+                urlInput.className = 'modal-input';
+                
+                urlGroup.appendChild(urlLabel);
+                urlGroup.appendChild(urlInput);
+                
+                // Upload input group
+                const uploadGroup = document.createElement('div');
+                uploadGroup.className = 'form-group';
+                
+                const uploadLabel = document.createElement('label');
+                uploadLabel.textContent = 'Or upload from your device:';
+                uploadLabel.style.display = 'block';
+                uploadLabel.style.marginTop = '15px';
+                uploadLabel.style.marginBottom = '5px';
+                
+                const uploadInput = document.createElement('input');
+                uploadInput.type = 'file';
+                uploadInput.accept = 'image/*';
+                uploadInput.className = 'modal-input';
+                
+                uploadGroup.appendChild(uploadLabel);
+                uploadGroup.appendChild(uploadInput);
+                
+                container.appendChild(urlGroup);
+                container.appendChild(uploadGroup);
+                
+                return container;
+            },
+            buttons: [
+                {
+                    text: 'Insert',
+                    primary: true,
+                    callback: () => {
+                        const urlInput = document.querySelector('.modal-container input[type="text"]');
+                        const fileInput = document.querySelector('.modal-container input[type="file"]');
+                        
+                        if (fileInput && fileInput.files && fileInput.files[0]) {
+                            // Handle file upload
+                            const file = fileInput.files[0];
+                            if (file.type.startsWith('image/')) {
+                                const reader = new FileReader();
+                                reader.onload = (e) => {
+                                    const selection = window.getSelection();
+                                    const range = selection.getRangeAt(0);
+                                    const img = document.createElement('img');
+                                    img.src = e.target.result;
+                                    img.style.maxWidth = '100%';
+                                    range.deleteContents();
+                                    range.insertNode(img);
+                                    
+                                    // Move cursor after inserted image
+                                    range.setStartAfter(img);
+                                    range.collapse(true);
+                                    selection.removeAllRanges();
+                                    selection.addRange(range);
+                                    
+                                    // Make sure notepad gets focus
+                                    this.notepad.focus();
+                                };
+                                reader.readAsDataURL(file);
+                                this.showToast('Image inserted successfully', 'success');
+                            } else {
+                                this.showToast('Please select a valid image file', 'error');
+                            }
+                        } else if (urlInput && urlInput.value && urlInput.value !== 'https://') {
+                            // Handle URL
+                            const selection = window.getSelection();
+                            const range = selection.getRangeAt(0);
+                            const img = document.createElement('img');
+                            img.src = urlInput.value;
+                            img.style.maxWidth = '100%';
+                            range.deleteContents();
+                            range.insertNode(img);
+                            
+                            // Move cursor after image
+                            range.setStartAfter(img);
+                            range.collapse(true);
+                            selection.removeAllRanges();
+                            selection.addRange(range);
+                            
+                            this.showToast('Image inserted successfully', 'success');
+                        } else {
+                            this.showToast('Please provide an image URL or select a file', 'warning');
+                        }
+                    }
+                },
+                {
+                    text: 'Cancel',
+                    callback: () => {}
+                }
+            ]
+        });
+    }
+    
+    insertCode() {
+        showModal({
+            title: 'Insert Code',
+            message: 'Enter your code:',
+            input: true,
+            inputValue: '',
+            buttons: [
+                {
+                    text: 'Insert',
+                    primary: true,
+                    callback: (code) => {
+                        if (code) {
+                            const pre = document.createElement('pre');
+                            const codeElement = document.createElement('code');
+                            codeElement.textContent = code;
+                            pre.appendChild(codeElement);
+                            
+                            const selection = window.getSelection();
+                            const range = selection.getRangeAt(0);
+                            range.deleteContents();
+                            range.insertNode(pre);
+                        }
+                    }
+                },
+                {
+                    text: 'Cancel',
+                    callback: () => {}
+                }
+            ]
+        });
+    }
+    
+    insertTable() {
+        let rowsInput, colsInput;
+        
+        const modal = showModal({
+            title: 'Insert Table',
+            message: 'Configure your table:',
+            content: () => {
+                const container = document.createElement('div');
+                
+                const rowsLabel = document.createElement('label');
+                rowsLabel.textContent = 'Number of rows:';
+                rowsLabel.style.display = 'block';
+                rowsLabel.style.marginBottom = '5px';
+                
+                rowsInput = document.createElement('input');
+                rowsInput.type = 'number';
+                rowsInput.min = '1';
+                rowsInput.value = '3';
+                rowsInput.className = 'modal-input';
+                
+                const colsLabel = document.createElement('label');
+                colsLabel.textContent = 'Number of columns:';
+                colsLabel.style.display = 'block';
+                colsLabel.style.marginTop = '15px';
+                colsLabel.style.marginBottom = '5px';
+                
+                colsInput = document.createElement('input');
+                colsInput.type = 'number';
+                colsInput.min = '1';
+                colsInput.value = '3';
+                colsInput.className = 'modal-input';
+                
+                container.appendChild(rowsLabel);
+                container.appendChild(rowsInput);
+                container.appendChild(colsLabel);
+                container.appendChild(colsInput);
+                
+                return container;
+            },
+            buttons: [
+                {
+                    text: 'Insert',
+                    primary: true,
+                    callback: () => {
+                        const rows = parseInt(rowsInput.value) || 3;
+                        const cols = parseInt(colsInput.value) || 3;
+                        
+                        let tableHTML = '<table border="1" style="width:100%">';
+                        
+                        // Create header row
+                        tableHTML += '<tr>';
+                        for (let i = 0; i < cols; i++) {
+                            tableHTML += '<th>Header ' + (i + 1) + '</th>';
+                        }
+                        tableHTML += '</tr>';
+                        
+                        // Create data rows
+                        for (let i = 0; i < rows - 1; i++) {
+                            tableHTML += '<tr>';
+                            for (let j = 0; j < cols; j++) {
+                                tableHTML += '<td>Cell ' + (i + 1) + ',' + (j + 1) + '</td>';
+                            }
+                            tableHTML += '</tr>';
+                        }
+                        
+                        tableHTML += '</table>';
+                        
+                        document.execCommand('insertHTML', false, tableHTML);
+                    }
+                },
+                {
+                    text: 'Cancel',
+                    callback: () => {}
+                }
+            ]
+        });
+        
+        // Custom content handling for the table modal
+        if (typeof modal.setContent === 'function') {
+            const content = document.createElement('div');
+            
+            const rowsLabel = document.createElement('label');
+            rowsLabel.textContent = 'Number of rows:';
+            rowsLabel.style.display = 'block';
+            rowsLabel.style.marginBottom = '5px';
+            
+            rowsInput = document.createElement('input');
+            rowsInput.type = 'number';
+            rowsInput.min = '1';
+            rowsInput.value = '3';
+            rowsInput.className = 'modal-input';
+            
+            const colsLabel = document.createElement('label');
+            colsLabel.textContent = 'Number of columns:';
+            colsLabel.style.display = 'block';
+            colsLabel.style.marginTop = '15px';
+            colsLabel.style.marginBottom = '5px';
+            
+            colsInput = document.createElement('input');
+            colsInput.type = 'number';
+            colsInput.min = '1';
+            colsInput.value = '3';
+            colsInput.className = 'modal-input';
+            
+            content.appendChild(rowsLabel);
+            content.appendChild(rowsInput);
+            content.appendChild(colsLabel);
+            content.appendChild(colsInput);
+            
+            modal.setContent(content);
+        }
+    }
+    
+    showFindReplaceDialog() {
+        let findInput, replaceInput;
+        
+        const modal = showModal({
+            title: 'Find and Replace',
+            message: '',
+            content: () => {
+                const container = document.createElement('div');
+                
+                const findLabel = document.createElement('label');
+                findLabel.textContent = 'Find:';
+                findLabel.style.display = 'block';
+                findLabel.style.marginBottom = '5px';
+                
+                findInput = document.createElement('input');
+                findInput.type = 'text';
+                findInput.className = 'modal-input';
+                
+                const replaceLabel = document.createElement('label');
+                replaceLabel.textContent = 'Replace with:';
+                replaceLabel.style.display = 'block';
+                replaceLabel.style.marginTop = '15px';
+                replaceLabel.style.marginBottom = '5px';
+                
+                replaceInput = document.createElement('input');
+                replaceInput.type = 'text';
+                replaceInput.className = 'modal-input';
+                
+                container.appendChild(findLabel);
+                container.appendChild(findInput);
+                container.appendChild(replaceLabel);
+                container.appendChild(replaceInput);
+                
+                return container;
+            },
+            buttons: [
+                {
+                    text: 'Replace All',
+                    primary: true,
+                    callback: () => {
+                        const findText = findInput.value;
+                        const replaceText = replaceInput.value;
+                        
+                        if (findText) {
+                            const content = this.notepad.innerHTML;
+                            const newContent = content.replace(new RegExp(findText, 'g'), replaceText);
+                            this.notepad.innerHTML = newContent;
+                        }
+                    }
+                },
+                {
+                    text: 'Cancel',
+                    callback: () => {}
+                }
+            ]
+        });
+        
+        // Custom content handling for the find/replace modal
+        if (typeof modal.setContent === 'function') {
+            const content = document.createElement('div');
+            
+            const findLabel = document.createElement('label');
+            findLabel.textContent = 'Find:';
+            findLabel.style.display = 'block';
+            findLabel.style.marginBottom = '5px';
+            
+            findInput = document.createElement('input');
+            findInput.type = 'text';
+            findInput.className = 'modal-input';
+            
+            const replaceLabel = document.createElement('label');
+            replaceLabel.textContent = 'Replace with:';
+            replaceLabel.style.display = 'block';
+            replaceLabel.style.marginTop = '15px';
+            replaceLabel.style.marginBottom = '5px';
+            
+            replaceInput = document.createElement('input');
+            replaceInput.type = 'text';
+            replaceInput.className = 'modal-input';
+            
+            content.appendChild(findLabel);
+            content.appendChild(findInput);
+            content.appendChild(replaceLabel);
+            content.appendChild(replaceInput);
+            
+            modal.setContent(content);
+        }
+    }
+    
+    showToast(message, type = 'info') {
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+        
+        const toastContent = document.createElement('div');
+        toastContent.className = 'toast-content';
+        
+        const icon = document.createElement('i');
+        if (type === 'success') {
+            icon.className = 'ri-check-line';
+        } else if (type === 'error') {
+            icon.className = 'ri-error-warning-line';
+        } else if (type === 'warning') {
+            icon.className = 'ri-alert-line';
+        } else {
+            icon.className = 'ri-information-line';
+        }
+        
+        const text = document.createElement('span');
+        text.textContent = message;
+        
+        toastContent.appendChild(icon);
+        toastContent.appendChild(text);
+        
+        const progress = document.createElement('div');
+        progress.className = 'toast-progress';
+        
+        toast.appendChild(toastContent);
+        toast.appendChild(progress);
+        
+        document.body.appendChild(toast);
+        
+        setTimeout(() => {
+            toast.classList.add('toast-exit');
+            setTimeout(() => {
+                if (document.body.contains(toast)) {
+                    document.body.removeChild(toast);
+                }
+            }, 300);
+        }, 3000);
+    }
+    
+    showEmojiPicker() {
+        const backdrop = document.createElement('div');
+        backdrop.className = 'emoji-backdrop';
+        
+        const emojiModal = document.createElement('div');
+        emojiModal.className = 'emoji-modal';
+        
+        // Create modal header
+        const header = document.createElement('div');
+        header.className = 'emoji-modal-header';
+        header.innerHTML = `
+            <h3>Emojis & Special Characters</h3>
+            <button class="emoji-close-btn">&times;</button>
+        `;
+        
+        // Create tabs
+        const tabs = document.createElement('div');
+        tabs.className = 'emoji-tabs';
+        
+        const emojiCategories = [
+            { id: 'smileys', name: 'Smileys & Emotion' },
+            { id: 'people', name: 'People & Body' },
+            { id: 'animals', name: 'Animals & Nature' },
+            { id: 'food', name: 'Food & Drink' },
+            { id: 'travel', name: 'Travel & Places' },
+            { id: 'activities', name: 'Activities' },
+            { id: 'objects', name: 'Objects' },
+            { id: 'symbols', name: 'Symbols' },
+            { id: 'flags', name: 'Flags' },
+            { id: 'special', name: 'Special Characters' }
+        ];
+        
+        emojiCategories.forEach((category, index) => {
+            const tab = document.createElement('div');
+            tab.className = `emoji-tab${index === 0 ? ' active' : ''}`;
+            tab.setAttribute('data-category', category.id);
+            tab.textContent = category.name;
+            tabs.appendChild(tab);
+        });
+        
+        // Create emoji grid container
+        const emojiGridContainer = document.createElement('div');
+        emojiGridContainer.className = 'emoji-grid-container';
+        
+        // Add smileys by default
+        const smileyEmojis = [
+            '😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '😇', 
+            '🙂', '🙃', '😉', '😌', '😍', '🥰', '😘', '😗', '😙', '😚', 
+            '😋', '😛', '😝', '😜', '🤪', '🤨', '🧐', '🤓', '😎', '🥸', 
+            '🤩', '🥳', '😏', '😒', '😞', '😔', '😟', '😕', '🙁', '☹️', 
+            '😣', '😖', '😫', '😩', '🥺', '😢', '😭', '😤', '😠', '😡', 
+            '🤬', '🤯', '😳', '🥵', '🥶', '😱', '😨', '😰', '😥', '😓', 
+            '🤗', '🤭', '🤫', '🤥', '😶', '😐', '😑', '😬'
+        ];
+        
+        const grid = document.createElement('div');
+        grid.className = 'emoji-grid';
+        
+        smileyEmojis.forEach(emoji => {
+            const emojiItem = document.createElement('div');
+            emojiItem.className = 'emoji-item';
+            emojiItem.textContent = emoji;
+            emojiItem.addEventListener('click', () => {
+                this.insertAtCursor(emoji);
+                backdrop.remove();
+            });
+            grid.appendChild(emojiItem);
+        });
+        
+        emojiGridContainer.appendChild(grid);
+        
+        // Assemble the modal
+        emojiModal.appendChild(header);
+        emojiModal.appendChild(tabs);
+        emojiModal.appendChild(emojiGridContainer);
+        backdrop.appendChild(emojiModal);
+        
+        // Close button functionality
+        const closeBtn = emojiModal.querySelector('.emoji-close-btn');
+        closeBtn.addEventListener('click', () => {
+            backdrop.remove();
+        });
+        
+        // Tab switching functionality
+        const tabElements = emojiModal.querySelectorAll('.emoji-tab');
+        tabElements.forEach(tab => {
+            tab.addEventListener('click', () => {
+                // Update active tab
+                tabElements.forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                
+                // Update emoji grid based on category
+                const category = tab.getAttribute('data-category');
+                this.updateEmojiGrid(emojiGridContainer, category);
+            });
+        });
+        
+        document.body.appendChild(backdrop);
+    }
+    
+    insertAtCursor(text) {
+        // Focus the notepad first
+        this.notepad.focus();
 
-    printNote() {
-        // Create an iframe to handle printing without affecting the main document
-        const iframe = document.createElement('iframe');
-        iframe.style.display = 'none';
-        document.body.appendChild(iframe);
+        // Use execCommand to insert at current cursor position
+        document.execCommand('insertText', false, text);
+
+        // If execCommand isn't supported or doesn't work, fall back to this method:
+        if (typeof window.getSelection !== 'undefined') {
+            const sel = window.getSelection();
+            if (sel.getRangeAt && sel.rangeCount) {
+                const range = sel.getRangeAt(0);
+                range.deleteContents();
+                
+                const textNode = document.createTextNode(text);
+                range.insertNode(textNode);
+                
+                // Move cursor to the end of the inserted text
+                range.setStartAfter(textNode);
+                range.setEndAfter(textNode);
+                sel.removeAllRanges();
+                sel.addRange(range);
+            }
+        }
+    }
+    
+    updateEmojiGrid(container, category) {
+        const grid = container.querySelector('.emoji-grid') || document.createElement('div');
+        grid.className = 'emoji-grid';
+        grid.innerHTML = '';
         
-        // Get the document from the iframe
-        const doc = iframe.contentDocument || iframe.contentWindow.document;
+        let emojis = [];
         
-        // Write the necessary HTML content to the iframe
-        doc.write(`
-            <!DOCTYPE html>
+        // Provide emojis by category
+        switch(category) {
+            case 'smileys':
+                emojis = ['😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '😇', '🙂', '🙃', '😉', '😌', '😍', '🥰', '😘', '😗', '😙', '😚', '😋', '😛', '😝', '😜', '🤪', '🤨', '🧐', '🤓', '😎', '🥸', '🤩', '🥳', '😏', '😒', '😞', '😔', '😟', '😕', '🙁', '☹️', '😣', '😖', '😫', '😩', '🥺', '😢', '😭', '😤', '😠', '😡', '🤬', '🤯', '😳', '🥵', '🥶', '😱', '😨', '😰', '😥', '😓', '🤗', '🤭', '🤫', '🤥', '😶', '😐', '😑', '😬'];
+                break;
+            case 'people':
+                emojis = ['👋', '🤚', '✋', '👌', '✌️', '🤞', '🤟', '🤘', '🤙', '👈', '👉', '👆', '👇', '☝️', '👍', '👎', '✊', '👊', '🤛', '🤜', '👏', '🙌', '👐', '🤲', '🤝', '🙏', '✍️', '💅', '🤳', '💪'];
+                break;
+            case 'animals':
+                emojis = ['🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮', '🐷', '🐽', '🐸', '🐵', '🙈', '🙉', '🙊', '🐒', '🐔', '🐧', '🐦', '🐤', '🐣'];
+                break;
+            case 'food':
+                emojis = ['🍎', '🍐', '🍊', '🍋', '🍌', '🍉', '🍇', '🍓', '🍒', '🍑', '🍍', '🥝', '🍅', '🍆', '🥑', '🥦', '🥬', '🥒', '🌶️'];
+                break;
+            case 'travel':
+                emojis = ['🚗', '🚕', '🚙', '🚌', '🚎', '🚓', '🚑', '🚒', '🚐', '🚚', '🚛', '🚜', '🛵', '🚲', '✈️', '🚀', '🚁', '⛵', '🚤', '🛳️', '🚢', '⚓', '⛽', '🚦', '🚥', '📢', '📣', '📯', '🔔', '🔕', '🎡', '🎢', '🎠', '⛲', '🏖️', '🏝️', '🏜️', '🌋', '⛰️', '🏕️', '⛺', '🏠', '🏡', '🏢', '🏭', '🏬', '🏣', '🏤', '🏥', '🏦', '🏨', '🏪', '🏫', '🏩', '💒', '⛪', '🕌', '🕍', '⛩️'];
+                break;
+            case 'activities':
+                emojis = ['⚽', '🏀', '🏈', '⚾', '🎾', '🏐', '🏉', '🎱', '🏓', '🏸', '🏒', '🏑', '🏏', '⛳', '🎣', '🥊', '🥋', '🎽', '🛹', '🎿', '🏂', '🏋️', '⛹️', '🤺', '🏌️', '🏇', '🧘', '🏄', '🏊', '🤽', '🚣', '🧗', '🚵', '🚴', '🏆', '🥇', '🥈', '🥉', '🏅', '🎖️', '🏵️', '🎗️', '🎫', '🎟️', '🎪', '🎭', '🎨', '🎬', '🎤', '🎧', '🎼', '🎹', '🥁', '🎷', '🎺', '🎸', '🎻'];
+                break;
+            case 'objects':
+                emojis = ['🎭', '👓', '🕶️', '👔', '👕', '👖', '🧣', '🧤', '🧥', '🧦', '👗', '👘', '👙', '👚', '👛', '👜', '👝', '🛍️', '🎒', '👞', '👟', '👠', '👡', '👢', '👑', '👒', '🎩', '📚', '📖', '📰', '📢', '📣', '📯', '🔔', '🔕', '🎼', '🎵', '🎶', '🎙️', '🚚', '📻', '🎷', '🎸', '🎹', '🎺', '🎻', '🥁'];
+                break;
+            case 'symbols':
+                emojis = ['❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔', '❣️', '💕', '💞', '💓', '💗', '💖', '💘', '💝', '💟', '☮️', '✝️', '☪️', '🕉️', '☸️', '✡️', '🔯', '🕎', '☯️', '☦️', '🛐', '⛎', '♈', '♉', '♊', '♋', '♌', '♍', '♎', '♏', '♐', '♑', '♒', '♓', '🆔', '⚛️', '🉑', '☢️', '☣️', '📴', '📳', '🈶', '🈚', '🈸', '🈺', '🈷️', '✴️', '🆚', '💮', '🉐', '㊙️', '㊗️', '🈴', '🈵', '🈹', '🈲', '🅰️', '🅱️', '🆎', '🆑', '🅾️', '🆘', '❌', '⭕', '🛑', '⛔', '📛', '🚫', '💯', '💢', '♨️', '🚷', '🚯', '🚳', '🚱', '🔞', '📵', '🚭', '❗', '❕', '❓', '❔', '‼️', '⁉️', '🔅', '🔆', '⚠️', '🚸', '🔱', '⚜️', '🔰', '♻️', '✅', '🈯', '💹', '❇️', '✳️', '❎', '🌐', '💠', 'Ⓜ️', '🌀', '💤', '🏧', '🚾', '♿', '🅿️', '🈳', '🈂️', '🛂', '🛃', '🛄', '🛅', '🚹', '🚺', '🚼', '🚻', '🚮', '🎦', '📶', '🈁', 'ℹ️', '🔤', '🔡', '🔠', '🆖', '🆗', '🆙', '🆒', '🆕', '🆓', '0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟', '#️⃣', '*️⃣', '▶️', '⏸️', '⏯️', '⏹️', '⏺️', '⏭️', '⏮️', '⏩', '⏪', '⏫', '⏬', '◀️', '🔼', '🔽', '➡️', '⬅️', '⬆️', '⬇️', '↗️', '↘️', '↙️', '↖️', '↕️', '↔️', '↪️', '↩️', '⤴️', '⤵️', '🔀', '🔁', '🔂', '🔄', '🔃', '➕', '➖', '➗', '✖️', '💲', '💱'];
+                break;
+            case 'special':
+                // Special characters
+                emojis = ['©', '®', '™', '℠', '℗', '§', '¶', '†', '‡', '※', '♠', '♥', '♦', '♣', '☚', '☛', '☜', '☝', '☞', '☟', '✌', '✓', '✔', '✕', '✖', '✗', '✘', '☑', '☒', '✄', '✂', '✆', '✉', '☎', '☏', '✍', '✎', '✏', '❤', '❥', '♡', '❣', '★', '☆', '✯', '✰', '☽', '☾', '♫', '♬', '♪', '♩', '°', '′', '″', '×', '÷', '±', '∓', '≤', '≥', '≠', '∞', '∑', '√', '∛', '∜', '∫', '∮', '≈', '≡', '≅', '≤', '≥', '≦', '≧', '↔', '→', '←', '↑', '↓', '↕', '⇒', '⇔', '⟵', '⟶', '⟷', '€', '£', '¥', '¢', '$', '₹', '¤', '₿', '₽', '₩', '₱', '₳', '₴', '₭', '₦'];
+                break;
+        }
+        
+        emojis.forEach(emoji => {
+            const emojiItem = document.createElement('div');
+            emojiItem.className = 'emoji-item';
+            emojiItem.textContent = emoji;
+            emojiItem.addEventListener('click', () => {
+                this.insertAtCursor(emoji);
+                document.querySelector('.emoji-backdrop').remove();
+            });
+            grid.appendChild(emojiItem);
+        });
+        
+        container.innerHTML = '';
+        container.appendChild(grid);
+    }
+    
+    toggleFullscreen() {
+        const container = document.querySelector('.notepad-container');
+        container.classList.toggle('fullscreen-mode');
+        
+        // Toggle body class to prevent scrolling in fullscreen mode
+        document.body.classList.toggle('has-fullscreen');
+        
+        const button = document.querySelector('[data-action="fullscreen"] i');
+        if (container.classList.contains('fullscreen-mode')) {
+            button.className = 'ri-fullscreen-exit-line';
+            // Scroll to top to ensure proper display
+            window.scrollTo(0, 0);
+            // Add overflow hidden to html element as well
+            document.documentElement.style.overflow = 'hidden';
+        } else {
+            button.className = 'ri-fullscreen-line';
+            // Remove overflow hidden from html element
+            document.documentElement.style.overflow = '';
+        }
+    }
+    
+    toggleDarkMode() {
+        document.body.classList.toggle('dark-theme');
+        
+        const button = document.querySelector('[data-action="darkMode"] i');
+        if (document.body.classList.contains('dark-theme')) {
+            button.className = 'ri-sun-line';
+            localStorage.setItem('darkMode', 'enabled');
+        } else {
+            button.className = 'ri-moon-line';
+            localStorage.setItem('darkMode', 'disabled');
+        }
+    }
+    
+    setupWordCounter() {
+        const notepad = document.getElementById('notepad');
+        const counterElement = document.getElementById('word-counter');
+        
+        const updateCounter = () => {
+            const text = notepad.innerText || '';
+            const wordCount = text.trim() === '' ? 0 : text.trim().split(/\s+/).length;
+            const charCount = text.length;
+            counterElement.textContent = `${wordCount} words | ${charCount} characters`;
+        };
+        
+        notepad.addEventListener('input', updateCounter);
+        notepad.addEventListener('paste', () => setTimeout(updateCounter, 100));
+        notepad.addEventListener('keyup', updateCounter);
+        
+        // Call immediately to initialize the counter
+        updateCounter();
+    }
+    
+    setupSavedFilesToggle() {
+        const toggleBtn = document.getElementById('toggleSavedFiles');
+        const savedFilesList = document.getElementById('savedFilesList');
+        const savedFilesHeader = document.querySelector('.saved-files-header');
+        
+        if (toggleBtn && savedFilesList && savedFilesHeader) {
+            toggleBtn.addEventListener('click', () => {
+                const isVisible = savedFilesList.style.display === 'flex';
+                savedFilesList.style.display = isVisible ? 'none' : 'flex';
+                toggleBtn.classList.toggle('collapsed');
+            });
+            
+            savedFilesHeader.addEventListener('click', (e) => {
+                if (!e.target.classList.contains('toggle-saved-btn') && !e.target.closest('.toggle-saved-btn')) {
+                    const isVisible = savedFilesList.style.display === 'flex';
+                    savedFilesList.style.display = isVisible ? 'none' : 'flex';
+                    toggleBtn.classList.toggle('collapsed');
+                }
+            });
+        }
+    }
+    
+    printNotepad() {
+        // Create a new window with just the notepad content
+        const printWindow = window.open('', '_blank');
+        
+        // Add the content and necessary styles
+        printWindow.document.write(`
             <html>
             <head>
-                <meta charset="UTF-8">
-                <title>Notepad Print</title>
+                <title>Print Note</title>
                 <style>
-                    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap');
                     body {
-                        font-family: ${this.notepad.style.fontFamily || 'Inter, sans-serif'};
-                        font-size: ${this.notepad.style.fontSize || '19px'};
-                        line-height: 1.6;
-                        color: #333;
+                        font-family: Arial, sans-serif;
                         padding: 20px;
-                        white-space: pre-wrap;
+                        line-height: 1.6;
                     }
-                    p { margin: 0.5em 0; }
-                    a { color: #6366f1; text-decoration: underline; }
-                    * { box-sizing: border-box; }
+                    img { max-width: 100%; }
+                    table { border-collapse: collapse; width: 100%; }
+                    th, td { border: 1px solid #ddd; padding: 8px; }
                 </style>
             </head>
             <body>
@@ -1861,19 +2063,209 @@ class NotepadApp {
             </body>
             </html>
         `);
-        doc.close();
         
-        // Wait for the iframe to load content before printing
-        setTimeout(() => {
-            iframe.contentWindow.focus();
-            iframe.contentWindow.print();
+        // Print and close
+        printWindow.document.close();
+        printWindow.focus();
+        printWindow.print();
+        printWindow.onafterprint = function() {
+            printWindow.close();
+        };
+    }
+    
+    exportToPdf() {
+        // Show loading toast
+        this.showToast('Generating PDF...', 'info');
+        
+        try {
+            // Create a clone of the notepad content for PDF generation
+            const contentClone = document.createElement('div');
+            contentClone.innerHTML = this.notepad.innerHTML;
+            contentClone.style.padding = '20px';
+            contentClone.style.fontSize = '12pt';
+            contentClone.style.color = '#000';
+            contentClone.style.background = '#fff';
+            contentClone.style.fontFamily = 'Arial, Helvetica, sans-serif';
+            contentClone.style.lineHeight = '1.5';
             
-            // Remove the iframe after printing
-            setTimeout(() => {
-                document.body.removeChild(iframe);
-            }, 500);
-        }, 300);
+            // Add some basic styling to headings, paragraphs, and lists
+            const headings = contentClone.querySelectorAll('h1, h2, h3, h4, h5, h6');
+            headings.forEach(heading => {
+                heading.style.marginBottom = '10px';
+                heading.style.marginTop = '20px';
+                heading.style.color = '#2d3748';
+                heading.style.fontWeight = 'bold';
+            });
+            
+            const paragraphs = contentClone.querySelectorAll('p');
+            paragraphs.forEach(p => {
+                p.style.marginBottom = '10px';
+                p.style.textAlign = 'justify';
+            });
+            
+            const lists = contentClone.querySelectorAll('ul, ol');
+            lists.forEach(list => {
+                list.style.marginLeft = '20px';
+                list.style.marginBottom = '15px';
+            });
+            
+            // Add borders to tables and style cells
+            const tables = contentClone.querySelectorAll('table');
+            tables.forEach(table => {
+                table.style.borderCollapse = 'collapse';
+                table.style.width = '100%';
+                table.style.marginBottom = '15px';
+                
+                const cells = table.querySelectorAll('th, td');
+                cells.forEach(cell => {
+                    cell.style.border = '1px solid #cbd5e0';
+                    cell.style.padding = '8px';
+                    cell.style.textAlign = 'left';
+                });
+                
+                const headers = table.querySelectorAll('th');
+                headers.forEach(header => {
+                    header.style.backgroundColor = '#f8fafc';
+                    header.style.fontWeight = 'bold';
+                });
+            });
+            
+            // Style blockquotes
+            const blockquotes = contentClone.querySelectorAll('blockquote');
+            blockquotes.forEach(quote => {
+                quote.style.borderLeft = '4px solid #6366f1';
+                quote.style.paddingLeft = '15px';
+                quote.style.margin = '15px 0';
+                quote.style.fontStyle = 'italic';
+                quote.style.color = '#4a5568';
+            });
+            
+            // Style code blocks
+            const codeBlocks = contentClone.querySelectorAll('pre, code');
+            codeBlocks.forEach(block => {
+                block.style.fontFamily = 'monospace';
+                block.style.backgroundColor = '#f8fafc';
+                block.style.padding = '10px';
+                block.style.borderRadius = '5px';
+                block.style.overflowX = 'auto';
+                block.style.marginBottom = '15px';
+            });
+            
+            // Set all images to have max width
+            const images = contentClone.querySelectorAll('img');
+            images.forEach(img => {
+                img.style.maxWidth = '100%';
+                img.style.height = 'auto';
+                img.style.marginBottom = '15px';
+                img.style.display = 'block';
+                img.style.marginLeft = 'auto';
+                img.style.marginRight = 'auto';
+            });
+            
+            // Add a light watermark/header with document title
+            const title = document.title || 'Exported Note';
+            const header = document.createElement('div');
+            header.style.textAlign = 'center';
+            header.style.marginBottom = '20px';
+            header.style.borderBottom = '1px solid #e2e8f0';
+            header.style.paddingBottom = '10px';
+            header.innerHTML = `<h2 style="color:#6366f1;margin:0;">${title}</h2>`;
+            header.innerHTML += `<p style="color:#718096;font-size:10pt;margin-top:5px;">Exported on ${new Date().toLocaleString()}</p>`;
+            contentClone.insertBefore(header, contentClone.firstChild);
+            
+            // Configure PDF options
+            const options = {
+                margin: [15, 15],
+                filename: 'note.pdf',
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { scale: 2, useCORS: true },
+                jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+            };
+            
+            // Generate PDF using html2pdf.js
+            html2pdf().from(contentClone).set(options).save()
+                .then(() => {
+                    this.showToast('PDF created successfully!', 'success');
+                })
+                .catch(error => {
+                    console.error('PDF generation error:', error);
+                    this.showToast('Error creating PDF. Try again.', 'error');
+                });
+        } catch (error) {
+            console.error('PDF generation error:', error);
+            this.showToast('Error creating PDF. Try again.', 'error');
+        }
+    }
+    
+    addBlockquoteExitBehavior() {
+        const notepad = document.getElementById('notepad');
+        notepad.addEventListener('keydown', (e) => {
+            // Check if Enter is pressed
+            if (e.key === 'Enter') {
+                const selection = window.getSelection();
+                if (!selection.isCollapsed) return; // Skip if text is selected
+                
+                const range = selection.getRangeAt(0);
+                
+                // Fix: Check node type before using closest() method
+                let blockquote = null;
+                if (range.startContainer.nodeType === Node.ELEMENT_NODE) {
+                    blockquote = range.startContainer.closest('blockquote');
+                } else if (range.startContainer.nodeType === Node.TEXT_NODE) {
+                    blockquote = range.startContainer.parentNode.closest('blockquote');
+                }
+                
+                if (blockquote) {
+                    // Check if cursor is at the end of the blockquote content
+                    const isAtEnd = this.isCursorAtEndOfNode(blockquote);
+                    
+                    if (isAtEnd) {
+                        e.preventDefault();
+                        
+                        // Create a new paragraph after the blockquote
+                        const p = document.createElement('p');
+                        p.innerHTML = '<br>'; // Empty paragraph needs BR to be visible
+                        
+                        // Insert after blockquote
+                        blockquote.parentNode.insertBefore(p, blockquote.nextSibling);
+                        
+                        // Move cursor to new paragraph
+                        const newRange = document.createRange();
+                        newRange.selectNodeContents(p);
+                        newRange.collapse(true);
+                        selection.removeAllRanges();
+                        selection.addRange(newRange);
+                        
+                        // Ensure the editor has focus
+                        this.notepad.focus();
+                    }
+                }
+            }
+        });
+    }
+    
+    isCursorAtEndOfNode(node) {
+        const selection = window.getSelection();
+        if (!selection.isCollapsed) return false;
+        
+        const range = selection.getRangeAt(0);
+        
+        // Create a range that selects the entire contents of the node
+        const nodeRange = document.createRange();
+        nodeRange.selectNodeContents(node);
+        nodeRange.collapse(false); // Collapse to end
+        
+        // Create a range from current position to the end of the node
+        const testRange = range.cloneRange();
+        testRange.setStart(range.startContainer, range.startOffset);
+        testRange.setEndAfter(node);
+        
+        // If this range has no content, we're at the end
+        return testRange.toString().trim() === '';
     }
 }
 
-new NotepadApp();
+// Initialize the app when the DOM is fully loaded
+document.addEventListener('DOMContentLoaded', () => {
+    window.notepadApp = new NotepadApp();
+});
