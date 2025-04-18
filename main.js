@@ -216,6 +216,27 @@ class NotepadApp {
     }
     
     handleAction(action, button) {
+        // Check if cursor is in notepad for actions that require cursor
+        const formattingActions = ['bold', 'italic', 'underline', 'strikethrough', 
+                                  'justifyLeft', 'justifyCenter', 'justifyRight', 'justifyFull',
+                                  'insertOrderedList', 'insertUnorderedList', 'link', 'image',
+                                  'code', 'table', 'blockquote', 'horizontalLine'];
+        
+        if (formattingActions.includes(action) && !this.isCursorInEditor()) {
+            this.showToast('Please place cursor in the editor first', 'warning');
+            
+            // Highlight the editor briefly to draw attention
+            const originalBorder = this.notepad.style.border;
+            this.notepad.style.border = '2px solid #ffc107'; // warning color
+            this.notepad.focus();
+            
+            setTimeout(() => {
+                this.notepad.style.border = originalBorder;
+            }, 2000);
+            
+            return;
+        }
+        
         switch (action) {
             case 'new':
                 if (this.notepad.innerHTML !== '' && this.notepad.innerHTML !== this.lastSavedContent) {
@@ -736,12 +757,12 @@ class NotepadApp {
         const textContent = this.notepad.innerText;
         
         switch(format) {
-            case '.txt':
+            case 'txt':
                 // Preserve line breaks and spacing in text export
                 const preservedTextContent = this.notepad.innerText.replace(/\n/g, '\r\n');
                 this.downloadFile(preservedTextContent, 'note.txt', 'text/plain');
                 break;
-            case '.html':
+            case 'html':
                 const htmlContent = `<!DOCTYPE html>
                 <html>
                 <head>
@@ -754,15 +775,15 @@ class NotepadApp {
                 </html>`;
                 this.downloadFile(htmlContent, 'note.html', 'text/html');
                 break;
-            case '.md':
+            case 'md':
                 // Simple HTML to Markdown conversion
                 let markdown = textContent;
                 this.downloadFile(markdown, 'note.md', 'text/markdown');
                 break;
-            case '.docx':
+            case 'docx':
                 this.exportToDocx();
                 break;
-            case '.pdf':
+            case 'pdf':
                 this.exportToPdf();
                 break;
         }
@@ -1542,20 +1563,62 @@ class NotepadApp {
     insertTable() {
         let rowsInput, colsInput;
         
-        const modal = showModal({
+        // First, check if cursor is inside the textarea/editor
+        if (!this.isCursorInEditor()) {
+            this.showToast('Please place your cursor inside the editor first', 'warning');
+            
+            // Highlight the editor briefly to draw attention
+            const originalBorder = this.notepad.style.border;
+            this.notepad.style.border = '2px solid #ffc107'; // warning color
+            
+            setTimeout(() => {
+                this.notepad.style.border = originalBorder;
+            }, 2000);
+            
+            return; // Exit the function early
+        }
+        
+        // Store selection state before modal
+        const selection = window.getSelection();
+        let storedRange = null;
+        let storedNode = null;
+        let storedOffset = null;
+        
+        if (selection && selection.rangeCount > 0) {
+            storedRange = selection.getRangeAt(0).cloneRange();
+            storedNode = selection.anchorNode;
+            storedOffset = selection.anchorOffset;
+            
+            // Create a temporary marker element
+            const marker = document.createElement('span');
+            marker.id = 'table-insertion-point';
+            marker.style.display = 'none';
+            
+            // Insert the marker at current selection
+            const range = selection.getRangeAt(0);
+            range.insertNode(marker);
+            
+            console.log("Selection markers saved", {
+                node: storedNode,
+                offset: storedOffset,
+                markerInserted: !!document.getElementById('table-insertion-point')
+            });
+        }
+
+        showModal({
             title: 'Insert Table',
             message: 'Configure your table:',
             content: () => {
                 const container = document.createElement('div');
                 
                 const rowsLabel = document.createElement('label');
-                rowsLabel.textContent = 'Number of rows:';
+                rowsLabel.textContent = 'Number of rows (including header):';
                 rowsLabel.style.display = 'block';
                 rowsLabel.style.marginBottom = '5px';
                 
                 rowsInput = document.createElement('input');
                 rowsInput.type = 'number';
-                rowsInput.min = '1';
+                rowsInput.min = '2';
                 rowsInput.value = '3';
                 rowsInput.className = 'modal-input';
                 
@@ -1583,72 +1646,166 @@ class NotepadApp {
                     text: 'Insert',
                     primary: true,
                     callback: () => {
-                        const rows = parseInt(rowsInput.value) || 3;
-                        const cols = parseInt(colsInput.value) || 3;
-                        
-                        let tableHTML = '<table border="1" style="width:100%">';
-                        
-                        // Create header row
-                        tableHTML += '<tr>';
-                        for (let i = 0; i < cols; i++) {
-                            tableHTML += '<th>Header ' + (i + 1) + '</th>';
-                        }
-                        tableHTML += '</tr>';
-                        
-                        // Create data rows
-                        for (let i = 0; i < rows - 1; i++) {
-                            tableHTML += '<tr>';
-                            for (let j = 0; j < cols; j++) {
-                                tableHTML += '<td>Cell ' + (i + 1) + ',' + (j + 1) + '</td>';
+                        try {
+                            // Parse input values
+                            let totalRows = parseInt(rowsInput.value) || 3;
+                            totalRows = totalRows + 1;
+                            const cols = parseInt(colsInput.value) || 3;
+                            
+                            // Create table HTML
+                            const tableHTML = this.createTableHTML(totalRows - 1, cols);
+                            
+                            // Find our marker
+                            const marker = document.getElementById('table-insertion-point');
+                            
+                            if (marker) {
+                                // Create table element
+                                const table = document.createElement('div');
+                                table.innerHTML = tableHTML;
+                                const tableElement = table.firstChild;
+                                
+                                // Insert table and remove marker
+                                marker.parentNode.insertBefore(tableElement, marker);
+                                marker.remove();
+                                
+                                // Set cursor after table
+                                const newRange = document.createRange();
+                                newRange.setStartAfter(tableElement);
+                                newRange.collapse(true);
+                                
+                                // Apply the new selection
+                                const selection = window.getSelection();
+                                selection.removeAllRanges();
+                                selection.addRange(newRange);
+                                
+                                // Ensure editor has focus
+                                this.notepad.focus();
+                            } else {
+                                console.log("Marker not found, falling back to stored range");
+                                this.insertTableWithStoredRange(tableHTML, storedRange, storedNode, storedOffset);
                             }
-                            tableHTML += '</tr>';
+                            
+                            this.showToast('Table inserted successfully', 'success');
+                        } catch (e) {
+                            console.error("Error inserting table:", e);
+                            this.insertTableFallback(tableHTML);
                         }
-                        
-                        tableHTML += '</table>';
-                        
-                        document.execCommand('insertHTML', false, tableHTML);
                     }
                 },
                 {
                     text: 'Cancel',
-                    callback: () => {}
+                    callback: () => {
+                        // Clean up marker if cancel is clicked
+                        const marker = document.getElementById('table-insertion-point');
+                        if (marker) marker.remove();
+                    }
                 }
             ]
         });
+    }
+    
+    isCursorInEditor() {
+        const selection = window.getSelection();
+        if (!selection || !selection.rangeCount) return false;
         
-        // Custom content handling for the table modal
-        if (typeof modal.setContent === 'function') {
-            const content = document.createElement('div');
+        const range = selection.getRangeAt(0);
+        const node = range.startContainer;
+        
+        // Check if the node or its parents are part of the editor
+        let current = node;
+        while (current) {
+            if (current === this.notepad) {
+                return true;
+            }
+            current = current.parentNode;
+        }
+        
+        return false;
+    }
+    
+    createTableHTML(dataRows, cols) {
+        let tableHTML = '<table border="1" style="width:100%; border-collapse: collapse; margin: 15px 0;">';
+        
+        // Create header row
+        tableHTML += '<tr>';
+        for (let i = 0; i < cols; i++) {
+            tableHTML += '<th style="border: 1px solid #ddd; padding: 8px; background-color: #f5f5f5;">Header ' + (i + 1) + '</th>';
+        }
+        tableHTML += '</tr>';
+        
+        // Create data rows
+        for (let i = 0; i < dataRows; i++) {
+            tableHTML += '<tr>';
+            for (let j = 0; j < cols; j++) {
+                tableHTML += '<td style="border: 1px solid #ddd; padding: 8px;">Cell ' + (i + 1) + ',' + (j + 1) + '</td>';
+            }
+            tableHTML += '</tr>';
+        }
+        
+        tableHTML += '</table>';
+        return tableHTML;
+    }
+    
+    insertTableWithStoredRange(tableHTML, storedRange, storedNode, storedOffset) {
+        try {
+            if (storedRange) {
+                const selection = window.getSelection();
+                selection.removeAllRanges();
+                selection.addRange(storedRange);
+            } else if (storedNode && typeof storedOffset === 'number') {
+                const newRange = document.createRange();
+                newRange.setStart(storedNode, storedOffset);
+                newRange.collapse(true);
+                
+                const selection = window.getSelection();
+                selection.removeAllRanges();
+                selection.addRange(newRange);
+            }
             
-            const rowsLabel = document.createElement('label');
-            rowsLabel.textContent = 'Number of rows:';
-            rowsLabel.style.display = 'block';
-            rowsLabel.style.marginBottom = '5px';
+            const selection = window.getSelection();
+            if (selection.rangeCount > 0) {
+                const range = selection.getRangeAt(0);
+                const table = document.createElement('div');
+                table.innerHTML = tableHTML;
+                
+                range.deleteContents();
+                range.insertNode(table.firstChild);
+                
+                // Position cursor after table
+                range.collapse(false);
+                selection.removeAllRanges();
+                selection.addRange(range);
+            } else {
+                this.insertTableFallback(tableHTML);
+            }
+        } catch (e) {
+            console.error("Error in insertTableWithStoredRange:", e);
+            this.insertTableFallback(tableHTML);
+        }
+    }
+    
+    insertTableFallback(tableHTML) {
+        console.log("Using fallback method to insert table");
+        
+        // Try to get any selection
+        const selection = window.getSelection();
+        if (selection && selection.rangeCount > 0) {
+            const range = selection.getRangeAt(0);
+            const table = document.createElement('div');
+            table.innerHTML = tableHTML;
             
-            rowsInput = document.createElement('input');
-            rowsInput.type = 'number';
-            rowsInput.min = '1';
-            rowsInput.value = '3';
-            rowsInput.className = 'modal-input';
+            range.deleteContents();
+            range.insertNode(table.firstChild);
             
-            const colsLabel = document.createElement('label');
-            colsLabel.textContent = 'Number of columns:';
-            colsLabel.style.display = 'block';
-            colsLabel.style.marginTop = '15px';
-            colsLabel.style.marginBottom = '5px';
-            
-            colsInput = document.createElement('input');
-            colsInput.type = 'number';
-            colsInput.min = '1';
-            colsInput.value = '3';
-            colsInput.className = 'modal-input';
-            
-            content.appendChild(rowsLabel);
-            content.appendChild(rowsInput);
-            content.appendChild(colsLabel);
-            content.appendChild(colsInput);
-            
-            modal.setContent(content);
+            // Position cursor after table
+            range.collapse(false);
+            selection.removeAllRanges();
+            selection.addRange(range);
+        } else {
+            // If all else fails, just append to the editor
+            const table = document.createElement('div');
+            table.innerHTML = tableHTML;
+            this.notepad.appendChild(table.firstChild);
         }
     }
     
@@ -1708,37 +1865,6 @@ class NotepadApp {
                 }
             ]
         });
-        
-        // Custom content handling for the find/replace modal
-        if (typeof modal.setContent === 'function') {
-            const content = document.createElement('div');
-            
-            const findLabel = document.createElement('label');
-            findLabel.textContent = 'Find:';
-            findLabel.style.display = 'block';
-            findLabel.style.marginBottom = '5px';
-            
-            findInput = document.createElement('input');
-            findInput.type = 'text';
-            findInput.className = 'modal-input';
-            
-            const replaceLabel = document.createElement('label');
-            replaceLabel.textContent = 'Replace with:';
-            replaceLabel.style.display = 'block';
-            replaceLabel.style.marginTop = '15px';
-            replaceLabel.style.marginBottom = '5px';
-            
-            replaceInput = document.createElement('input');
-            replaceInput.type = 'text';
-            replaceInput.className = 'modal-input';
-            
-            content.appendChild(findLabel);
-            content.appendChild(findInput);
-            content.appendChild(replaceLabel);
-            content.appendChild(replaceInput);
-            
-            modal.setContent(content);
-        }
     }
     
     showToast(message, type = 'info') {
